@@ -52,6 +52,7 @@ def default_notification_config() -> dict:
         "discord_webhook_url": settings.discord_webhook_url,
         "quiet_hours_start_utc": None,
         "quiet_hours_end_utc": None,
+        "daily_job_push_limit": 50,
     }
 
 

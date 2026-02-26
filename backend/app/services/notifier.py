@@ -122,14 +122,53 @@ class DiscordNotifier:
         overview_lines = [
             "Web3 招聘监控汇总",
             "时间窗口: 仅统计最近24小时内发布岗位",
+            f"每日岗位推送上限: {summary.get('daily_job_push_limit', 50)}",
+            f"过去24小时已推送: {summary.get('sent_last_24h', 0)}",
+            f"本轮可推送名额: {summary.get('remaining_quota', 0)}",
+            f"本轮候选岗位: {summary.get('candidate_jobs', 0)}",
+            f"本轮实际推送岗位: {summary.get('selected_jobs_count', 0)}",
+            f"超上限未推送: {summary.get('deferred_jobs_count', 0)}",
             f"新增岗位: {summary.get('new_jobs', 0)}",
             f"高优先岗位: {summary.get('high_priority_jobs', 0)}",
             f"失败来源: {failed_sources}",
-            "详细公司展示: 已按来源均衡抽样",
             "",
             *source_lines,
         ]
+        selected_source_stats = summary.get("selected_source_stats") or {}
+        if selected_source_stats:
+            overview_lines.extend(
+                [
+                    "",
+                    "本轮已推送岗位来源分布：",
+                    *[f"- {src}: {count}" for src, count in sorted(selected_source_stats.items(), key=lambda x: (-x[1], x[0]))],
+                ]
+            )
         payloads.append({"content": "\n".join(overview_lines)})
+
+        selected_jobs = summary.get("selected_jobs") or []
+        if selected_jobs:
+            job_lines = ["本轮岗位推送（按评分+级别排序）:"]
+            for idx, item in enumerate(selected_jobs, start=1):
+                job_lines.append(
+                    f"{idx}. {item['company']} | {item['title']} | 评分 {item['score']:.1f} | 级别分 {item.get('seniority_score', 0):.1f} | 来源 {item['source']} | 发布时间 {item.get('posted_at', 'N/A')}"
+                )
+                job_lines.append(f"   岗位链接: {item['url']}")
+            for chunk in cls._split_lines(job_lines):
+                payloads.append({"content": chunk})
+        else:
+            payloads.append({"content": "本轮岗位推送: 无（名额已用完或无新增岗位）"})
+
+        deferred_jobs = summary.get("deferred_jobs") or []
+        if deferred_jobs:
+            deferred_lines = [f"超上限未推送岗位（公司+岗位名，展示前 {len(deferred_jobs)} 条）:"]
+            for item in deferred_jobs:
+                deferred_lines.append(f"- {item['company']} | {item['title']}")
+            for chunk in cls._split_lines(deferred_lines):
+                payloads.append({"content": chunk})
+
+        # Backward-compatible fallback for older payload shape.
+        if summary.get("selected_jobs") is not None:
+            return payloads
 
         companies = summary.get("company_summaries", [])
         if not companies:

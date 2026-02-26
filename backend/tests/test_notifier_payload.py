@@ -214,3 +214,49 @@ def test_digest_payload_balances_detailed_companies_by_source():
     content = "\n".join(item["content"] for item in payloads)
     assert "主要来源: dejob (https://dejob.example.com)" in content
     assert "主要来源: web3career (https://web3career.example.com)" in content
+
+
+def test_digest_payload_uses_selected_jobs_section_when_present():
+    payloads = DiscordNotifier.build_digest_payloads(
+        {
+            "new_jobs": 3,
+            "high_priority_jobs": 2,
+            "failed_sources": [],
+            "source_stats": [],
+            "daily_job_push_limit": 50,
+            "sent_last_24h": 10,
+            "remaining_quota": 40,
+            "candidate_jobs": 3,
+            "selected_jobs_count": 2,
+            "deferred_jobs_count": 1,
+            "selected_source_stats": {"web3career": 1, "dejob": 1},
+            "selected_jobs": [
+                {
+                    "job_id": 1,
+                    "company": "Acme",
+                    "title": "Senior Solidity Engineer",
+                    "score": 92.0,
+                    "seniority_score": 20.0,
+                    "source": "web3career",
+                    "url": "https://example.com/1",
+                    "posted_at": "2026-02-26 08:00 UTC",
+                },
+                {
+                    "job_id": 2,
+                    "company": "Beta",
+                    "title": "Protocol Engineer",
+                    "score": 88.0,
+                    "seniority_score": 10.0,
+                    "source": "dejob",
+                    "url": "https://example.com/2",
+                    "posted_at": "2026-02-26 07:00 UTC",
+                },
+            ],
+            "deferred_jobs": [{"company": "Gamma", "title": "Backend Engineer"}],
+        }
+    )
+    content = "\n".join(item["content"] for item in payloads)
+    assert "每日岗位推送上限: 50" in content
+    assert "本轮岗位推送（按评分+级别排序）" in content
+    assert "Acme | Senior Solidity Engineer | 评分 92.0" in content
+    assert "超上限未推送岗位（公司+岗位名" in content

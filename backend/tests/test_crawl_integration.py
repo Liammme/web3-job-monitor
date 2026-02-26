@@ -99,7 +99,8 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert result["new_jobs"] == 2
     assert result["high_priority_jobs"] == 1
     assert db.query(Job).count() == 2
-    assert db.query(Notification).count() == 1  # digest only
+    assert result["selected_jobs_count"] == 2
+    assert db.query(Notification).count() == 3  # digest + 2 job items
     assert len(result["company_summaries"]) == 2
     assert result["company_summaries"][0]["company"] == "Acme"
     assert result["company_summaries"][0]["main_source"] == "web3career"
@@ -133,3 +134,27 @@ def test_run_crawl_filters_out_jobs_older_than_24h(monkeypatch):
     assert result["new_jobs"] == 0
     assert result["high_priority_jobs"] == 0
     assert db.query(Job).count() == 0
+
+
+def test_run_crawl_respects_daily_job_push_limit(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    cfg = default_notification_config()
+    cfg["daily_job_push_limit"] = 1
+    db.add(Setting(key="notifications", value=cfg))
+    db.commit()
+
+    monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", FakeAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
+
+    result = run_crawl(db)
+
+    assert result["new_jobs"] == 2
+    assert result["selected_jobs_count"] == 1
+    assert result["deferred_jobs_count"] == 1
+    assert len(result["selected_jobs"]) == 1

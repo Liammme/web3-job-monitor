@@ -365,6 +365,7 @@ def run_crawl(db: Session) -> dict:
     source_stats: list[dict] = []
     company_stats: dict[str, dict] = {}
     high_job_details: list[dict] = []
+    all_new_job_details: list[dict] = []
 
     for source in sources:
         run = CrawlRun(source_id=source.id, started_at=datetime.utcnow(), status="running")
@@ -461,6 +462,25 @@ def run_crawl(db: Session) -> dict:
                 )
                 db.add(score_row)
                 db.commit()
+
+                posted_at_dt = record.posted_at or record.collected_at
+                all_new_job_details.append(
+                    {
+                        "job_id": record.id,
+                        "company": record.company or "N/A",
+                        "title": _clean_role_title(record.title),
+                        "score": float(score_result.total_score),
+                        "seniority_score": float(score_result.seniority_score),
+                        "senior_signal": 1 if _contains_senior_signal(record.title) else 0,
+                        "source": source.name,
+                        "source_website": source.base_url,
+                        "url": record.canonical_url,
+                        "location": record.location or "N/A",
+                        "employment_type": record.employment_type or "N/A",
+                        "posted_at": posted_at_dt.strftime("%Y-%m-%d %H:%M UTC"),
+                        "posted_at_dt": posted_at_dt,
+                    }
+                )
 
                 company_name = (record.company or "").strip() or "Unknown Company"
                 company_key = company_name.lower()
@@ -565,6 +585,59 @@ def run_crawl(db: Session) -> dict:
         "high_jobs": sorted(high_job_details, key=lambda x: (-x["score"], x["company"].lower(), x["title"].lower())),
     }
 
+    daily_limit_raw = notify_cfg.get("daily_job_push_limit", 50)
+    try:
+        daily_limit = int(daily_limit_raw)
+    except (TypeError, ValueError):
+        daily_limit = 50
+    daily_limit = max(1, daily_limit)
+
+    sent_last_24h = (
+        db.query(Notification)
+        .filter(
+            Notification.channel == "discord",
+            Notification.mode == "job_digest_item",
+            Notification.status == "sent",
+            Notification.sent_at >= now_utc - timedelta(days=1),
+        )
+        .count()
+    )
+    remaining_quota = max(0, daily_limit - sent_last_24h)
+    ranked_jobs = sorted(
+        all_new_job_details,
+        key=lambda x: (
+            -x["score"],
+            -x["seniority_score"],
+            -x["senior_signal"],
+            -x["posted_at_dt"].timestamp(),
+            x["company"].lower(),
+            x["title"].lower(),
+        ),
+    )
+    selected_jobs = ranked_jobs[:remaining_quota]
+    deferred_jobs = ranked_jobs[remaining_quota:]
+
+    selected_source_stats: dict[str, int] = {}
+    for item in selected_jobs:
+        selected_source_stats[item["source"]] = selected_source_stats.get(item["source"], 0) + 1
+
+    digest.update(
+        {
+            "daily_job_push_limit": daily_limit,
+            "sent_last_24h": sent_last_24h,
+            "remaining_quota": remaining_quota,
+            "candidate_jobs": len(ranked_jobs),
+            "selected_jobs": [
+                {k: v for k, v in item.items() if k != "posted_at_dt"}
+                for item in selected_jobs
+            ],
+            "selected_jobs_count": len(selected_jobs),
+            "selected_source_stats": selected_source_stats,
+            "deferred_jobs_count": len(deferred_jobs),
+            "deferred_jobs": [{"company": x["company"], "title": x["title"]} for x in deferred_jobs[:200]],
+        }
+    )
+
     # Send digest as multiple clear messages to improve readability.
     payloads = notifier.build_digest_payloads(digest)
     send_errors: list[str] = []
@@ -582,6 +655,16 @@ def run_crawl(db: Session) -> dict:
             error="" if not send_errors else " | ".join(send_errors)[:2000],
         )
     )
+    for item in selected_jobs:
+        db.add(
+            Notification(
+                job_id=item["job_id"],
+                channel="discord",
+                mode="job_digest_item",
+                status="sent" if not send_errors else "failed",
+                error="" if not send_errors else "digest send failed",
+            )
+        )
     db.commit()
 
     return digest
