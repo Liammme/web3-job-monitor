@@ -87,11 +87,25 @@ def seed_sources_if_empty() -> None:
             legacy_remote3.enabled = False
             db.add(legacy_remote3)
 
-        keys = {s.key for s in db.query(Setting).all()}
+        settings_rows = {row.key: row for row in db.query(Setting).all()}
+        keys = set(settings_rows.keys())
         if "scoring" not in keys:
             db.add(Setting(key="scoring", value=default_score_config(), updated_at=datetime.utcnow()))
         if "notifications" not in keys:
             db.add(Setting(key="notifications", value=default_notification_config(), updated_at=datetime.utcnow()))
+        else:
+            row = settings_rows["notifications"]
+            existing = row.value if isinstance(row.value, dict) else {}
+            defaults = default_notification_config()
+            changed = False
+            for key, default_value in defaults.items():
+                if key not in existing:
+                    existing[key] = default_value
+                    changed = True
+            if changed:
+                row.value = existing
+                row.updated_at = datetime.utcnow()
+                db.add(row)
 
         db.commit()
     finally:
