@@ -173,3 +173,44 @@ def test_digest_payload_splits_when_too_long():
     assert all(len(item["content"]) <= 1900 for item in payloads)
     content = "\n".join(item["content"] for item in payloads)
     assert "其余公司（仅公司+岗位名" in content
+
+
+def test_digest_payload_balances_detailed_companies_by_source():
+    def make_company(i: int, source: str) -> dict:
+        return {
+            "company": f"Company{i}",
+            "hiring_status": "持续招",
+            "contact_priority": 50,
+            "contact_action": "建议本周联系",
+            "new_jobs": 1,
+            "recent_7d": 1,
+            "recent_30d": 1,
+            "first_seen_at": "2026-02-26",
+            "max_score": 80.0 - i * 0.1,
+            "avg_score": 70.0,
+            "company_url": "https://example.com",
+            "main_source": source,
+            "main_source_website": f"https://{source}.example.com",
+            "contact_clues": {"email": "N/A", "telegram": "N/A", "career_url": "https://example.com/jobs"},
+            "top_roles": [],
+            "job_titles": [f"Role{i}"],
+        }
+
+    companies = [make_company(i, "linkedin") for i in range(20)]
+    companies.append(make_company(20, "dejob"))
+    companies.append(make_company(21, "web3career"))
+
+    payloads = DiscordNotifier.build_digest_payloads(
+        {
+            "new_jobs": 22,
+            "high_priority_jobs": 0,
+            "failed_sources": [],
+            "source_stats": [],
+            "high_jobs": [],
+            "company_summaries": companies,
+        }
+    )
+
+    content = "\n".join(item["content"] for item in payloads)
+    assert "主要来源: dejob (https://dejob.example.com)" in content
+    assert "主要来源: web3career (https://web3career.example.com)" in content

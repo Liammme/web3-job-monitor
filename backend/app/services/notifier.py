@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections import defaultdict
 from datetime import datetime
 
 import httpx
@@ -6,6 +7,7 @@ import httpx
 
 class DiscordNotifier:
     MAX_DETAILED_COMPANIES = 20
+    MIN_DETAILED_PER_SOURCE = 2
 
     def __init__(self, webhook_url: str):
         self.webhook_url = webhook_url
@@ -71,6 +73,42 @@ class DiscordNotifier:
         return chunks
 
     @classmethod
+    def _split_companies_for_digest(cls, companies: list[dict]) -> tuple[list[dict], list[dict]]:
+        if len(companies) <= cls.MAX_DETAILED_COMPANIES:
+            return companies, []
+
+        source_to_indexes: dict[str, list[int]] = defaultdict(list)
+        source_order: list[str] = []
+        for idx, item in enumerate(companies):
+            source = str(item.get("main_source") or "unknown")
+            if source not in source_to_indexes:
+                source_order.append(source)
+            source_to_indexes[source].append(idx)
+
+        selected: set[int] = set()
+        cursors = {source: 0 for source in source_order}
+
+        for _ in range(cls.MIN_DETAILED_PER_SOURCE):
+            for source in source_order:
+                if len(selected) >= cls.MAX_DETAILED_COMPANIES:
+                    break
+                cursor = cursors[source]
+                indexes = source_to_indexes[source]
+                if cursor < len(indexes):
+                    selected.add(indexes[cursor])
+                    cursors[source] = cursor + 1
+
+        for idx in range(len(companies)):
+            if len(selected) >= cls.MAX_DETAILED_COMPANIES:
+                break
+            selected.add(idx)
+
+        detailed_indexes = sorted(selected)
+        detailed_companies = [companies[i] for i in detailed_indexes]
+        overflow_companies = [item for i, item in enumerate(companies) if i not in selected]
+        return detailed_companies, overflow_companies
+
+    @classmethod
     def build_digest_payloads(cls, summary: dict) -> list[dict]:
         payloads: list[dict] = []
 
@@ -87,6 +125,7 @@ class DiscordNotifier:
             f"新增岗位: {summary.get('new_jobs', 0)}",
             f"高优先岗位: {summary.get('high_priority_jobs', 0)}",
             f"失败来源: {failed_sources}",
+            "详细公司展示: 已按来源均衡抽样",
             "",
             *source_lines,
         ]
@@ -96,8 +135,7 @@ class DiscordNotifier:
         if not companies:
             payloads.append({"content": "最近有招聘需求的公司：暂无新增公司"})
         else:
-            detailed_companies = companies[: cls.MAX_DETAILED_COMPANIES]
-            overflow_companies = companies[cls.MAX_DETAILED_COMPANIES :]
+            detailed_companies, overflow_companies = cls._split_companies_for_digest(companies)
 
             for idx, item in enumerate(detailed_companies, start=1):
                 company_lines = [
