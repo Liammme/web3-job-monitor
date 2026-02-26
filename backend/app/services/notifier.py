@@ -11,10 +11,10 @@ class DiscordNotifier:
     @staticmethod
     def build_single_payload(job: dict, score: dict, run_id: int) -> dict:
         desc = (
-            f"**Source:** {job['source_name']}\\n"
-            f"**Location:** {job.get('location') or 'N/A'}\\n"
-            f"**Remote:** {job.get('remote_type') or 'N/A'}\\n"
-            f"**Score:** {score['total_score']} ({score['decision']})\\n"
+            f"**Source:** {job['source_name']}\n"
+            f"**Location:** {job.get('location') or 'N/A'}\n"
+            f"**Remote:** {job.get('remote_type') or 'N/A'}\n"
+            f"**Score:** {score['total_score']} ({score['decision']})\n"
             f"**Keywords:** {', '.join(score.get('matched_keywords', [])) or 'None'}"
         )
         return {
@@ -41,7 +41,7 @@ class DiscordNotifier:
             lines.append(
                 f"- {item['source']}: fetched={item['fetched']} new={item['new']} high={item['high']} status={item['status']}"
             )
-        return {"content": "\\n".join(lines)}
+        return {"content": "\n".join(lines)}
 
     def send(self, payload: dict) -> tuple[bool, str]:
         if not self.webhook_url:
