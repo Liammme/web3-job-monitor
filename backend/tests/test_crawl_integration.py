@@ -100,7 +100,7 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert result["high_priority_jobs"] == 1
     assert db.query(Job).count() == 2
     assert result["selected_jobs_count"] == 2
-    assert db.query(Notification).count() == 3  # digest + 2 job items
+    assert db.query(Notification).count() == 4  # digest + 2 job items + end marker
     assert len(result["company_summaries"]) == 2
     assert result["company_summaries"][0]["company"] == "Acme"
     assert result["company_summaries"][0]["main_source"] == "web3career"
@@ -163,7 +163,7 @@ def test_run_crawl_respects_daily_job_push_limit(monkeypatch):
     assert end_rows[0].status == "sent"
 
 
-def test_run_crawl_does_not_repeat_end_of_push_in_same_day(monkeypatch):
+def test_run_crawl_sends_end_of_push_every_run(monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
     TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     Base.metadata.create_all(bind=engine)
@@ -174,21 +174,11 @@ def test_run_crawl_does_not_repeat_end_of_push_in_same_day(monkeypatch):
     cfg = default_notification_config()
     cfg["daily_job_push_limit"] = 1
     db.add(Setting(key="notifications", value=cfg))
-    db.add(
-        Notification(
-            job_id=None,
-            channel="discord",
-            mode="end_of_push",
-            status="sent",
-            error="",
-        )
-    )
-    db.commit()
-
     monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", FakeAdapter)
     monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
 
     run_crawl(db)
+    run_crawl(db)
 
     end_rows = db.query(Notification).filter(Notification.mode == "end_of_push").all()
-    assert len(end_rows) == 1
+    assert len(end_rows) == 2
