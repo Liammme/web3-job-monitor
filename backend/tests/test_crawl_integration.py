@@ -80,7 +80,7 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert result["new_jobs"] == 2
     assert result["high_priority_jobs"] == 1
     assert db.query(Job).count() == 2
-    assert db.query(Notification).count() == 2  # single + digest
+    assert db.query(Notification).count() == 1  # digest only
     assert len(result["company_summaries"]) == 2
     assert result["company_summaries"][0]["company"] == "Acme"
     assert result["company_summaries"][0]["main_source"] == "web3career"
@@ -91,3 +91,5 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert result["company_summaries"][0]["top_roles"]
     assert len(result["company_summaries"][0]["top_roles"]) <= 2
     assert "\n" not in result["company_summaries"][0]["top_roles"][0]["title"]
+    assert result["company_summaries"][0]["top_roles"][0]["posted_at"] != "N/A"
+    assert result["high_jobs"]

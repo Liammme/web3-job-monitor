@@ -47,6 +47,18 @@ def test_digest_payload_company_section():
             "source_stats": [
                 {"source": "web3career", "fetched": 4, "new": 4, "high": 1, "status": "success"},
             ],
+            "high_jobs": [
+                {
+                    "company": "A Corp",
+                    "title": "Senior Protocol Engineer",
+                    "score": 92.0,
+                    "posted_at": "2026-02-26",
+                    "location": "Remote",
+                    "employment_type": "FULL_TIME",
+                    "source": "linkedin",
+                    "url": "https://x/jobs/high-1",
+                }
+            ],
             "company_summaries": [
                 {
                     "company": "B Corp",
@@ -103,7 +115,9 @@ def test_digest_payload_company_section():
         }
     )
 
-    content = payload["content"]
+    assert payload["content"] == "Web3 招聘监控汇总（单条消息）"
+    assert payload["embeds"]
+    content = "\n".join(embed["description"] for embed in payload["embeds"])
     assert "最近有招聘需求的公司" in content
     assert "公司网址" in content
     assert "来源网站（主要）" in content
@@ -111,5 +125,6 @@ def test_digest_payload_company_section():
     assert "重点岗位" in content
     assert "联系线索" in content
     assert "首次发现招聘" in content
+    assert "高优先岗位明细（本轮）" in content
     # Notifier should output companies in provided order; sorting is verified in crawl_service test.
     assert content.index("B Corp") < content.index("A Corp")

@@ -86,7 +86,45 @@ class DiscordNotifier:
                 f"抓取失败来源: **{', '.join(summary['failed_sources']) or 'none'}**",
             ]
         )
-        return {"content": "\n".join(lines)}
+
+        high_jobs = summary.get("high_jobs", [])
+        lines.append("")
+        lines.append("高优先岗位明细（本轮）:")
+        if not high_jobs:
+            lines.append("- 无")
+        else:
+            for item in high_jobs:
+                lines.append(
+                    f"- {item['company']}｜{item['title']}｜评分 {item['score']}｜发布时间 {item.get('posted_at', 'N/A')}｜{item.get('location', 'N/A')}｜{item.get('employment_type', 'N/A')}｜来源 {item['source']}｜{item['url']}"
+                )
+
+        full_text = "\n".join(lines)
+        chunks: list[str] = []
+        current: list[str] = []
+        current_len = 0
+        for line in full_text.split("\n"):
+            add_len = len(line) + 1
+            if current and current_len + add_len > 3800:
+                chunks.append("\n".join(current))
+                current = [line]
+                current_len = add_len
+            else:
+                current.append(line)
+                current_len += add_len
+        if current:
+            chunks.append("\n".join(current))
+
+        embeds = []
+        for idx, chunk in enumerate(chunks[:10], start=1):
+            embeds.append(
+                {
+                    "title": f"招聘监控汇总 {idx}/{len(chunks)}",
+                    "description": chunk,
+                }
+            )
+
+        # 单次 crawl 仅发一条 Discord 消息，便于后续 AI 统一分析。
+        return {"content": "Web3 招聘监控汇总（单条消息）", "embeds": embeds}
 
     def send(self, payload: dict) -> tuple[bool, str]:
         if not self.webhook_url:

@@ -341,6 +341,7 @@ def run_crawl(db: Session) -> dict:
     failed_sources: list[str] = []
     source_stats: list[dict] = []
     company_stats: dict[str, dict] = {}
+    high_job_details: list[dict] = []
 
     for source in sources:
         run = CrawlRun(source_id=source.id, started_at=datetime.utcnow(), status="running")
@@ -467,7 +468,7 @@ def run_crawl(db: Session) -> dict:
                             "url": record.canonical_url,
                             "location": record.location,
                             "employment_type": record.employment_type,
-                            "posted_at": record.posted_at,
+                            "posted_at": record.posted_at or record.collected_at,
                         }
                     )
 
@@ -479,41 +480,19 @@ def run_crawl(db: Session) -> dict:
                 if score_result.decision == "high":
                     high_count += 1
                     total_high += 1
-                    if not quiet_hours:
-                        company_url = _pick_company_url(record.raw_payload, record.canonical_url)
-                        payload = notifier.build_single_payload(
-                            {
-                                "source_name": source.name,
-                                "source_website": source.base_url,
-                                "title": record.title,
-                                "company": record.company,
-                                "company_url": company_url,
-                                "posted_at": record.posted_at,
-                                "location": record.location,
-                                "remote_type": record.remote_type,
-                                "canonical_url": record.canonical_url,
-                            },
-                            {
-                                "total_score": score_result.total_score,
-                                "decision": score_result.decision,
-                                "keyword_score": score_result.keyword_score,
-                                "seniority_score": score_result.seniority_score,
-                                "remote_bonus": score_result.remote_bonus,
-                                "region_bonus": score_result.region_bonus,
-                            },
-                            run.id,
-                        )
-                        ok, msg = notifier.send(payload)
-                        db.add(
-                            Notification(
-                                job_id=record.id,
-                                channel="discord",
-                                mode="single",
-                                status="sent" if ok else "failed",
-                                error="" if ok else msg,
-                            )
-                        )
-                        db.commit()
+                    high_job_details.append(
+                        {
+                            "company": record.company or "N/A",
+                            "title": _clean_role_title(record.title),
+                            "score": round(float(score_result.total_score), 1),
+                            "source": source.name,
+                            "source_website": source.base_url,
+                            "url": record.canonical_url,
+                            "location": record.location or "N/A",
+                            "employment_type": record.employment_type or "N/A",
+                            "posted_at": (record.posted_at or record.collected_at).strftime("%Y-%m-%d"),
+                        }
+                    )
 
             run.status = "success"
             run.fetched_count = fetched_count
@@ -556,6 +535,7 @@ def run_crawl(db: Session) -> dict:
         "failed_sources": failed_sources,
         "source_stats": source_stats,
         "company_summaries": _build_company_summaries(db, company_stats, now_utc),
+        "high_jobs": sorted(high_job_details, key=lambda x: (-x["score"], x["company"].lower(), x["title"].lower())),
     }
 
     if not quiet_hours:
