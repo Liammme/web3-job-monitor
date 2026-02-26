@@ -152,7 +152,7 @@ class DiscordNotifier:
                 job_lines.append(
                     f"{idx}. {item['company']} | {item['title']} | 评分 {item['score']:.1f} | 级别分 {item.get('seniority_score', 0):.1f} | 来源 {item['source']} | 发布时间 {item.get('posted_at', 'N/A')}"
                 )
-                job_lines.append(f"   岗位链接: {item['url']}")
+                job_lines.append(f"   岗位链接: <{item['url']}>")
             for chunk in cls._split_lines(job_lines):
                 payloads.append({"content": chunk})
         else:
@@ -200,7 +200,7 @@ class DiscordNotifier:
                         company_lines.append(
                             f"- {role['title']} | 评分 {role['score']} | 发布时间 {role.get('posted_at', 'N/A')} | {role.get('location', 'N/A')} | {role.get('employment_type', 'N/A')}"
                         )
-                        company_lines.append(f"  岗位链接: {role['url']}")
+                        company_lines.append(f"  岗位链接: <{role['url']}>")
                 else:
                     company_lines.append("重点岗位: N/A")
 
@@ -233,8 +233,12 @@ class DiscordNotifier:
         if not self.webhook_url:
             return False, "webhook not configured"
         try:
+            send_payload = dict(payload)
+            # Suppress Discord automatic link preview cards in digest text messages.
+            if "embeds" not in send_payload and "flags" not in send_payload:
+                send_payload["flags"] = 4
             with httpx.Client(timeout=20) as client:
-                resp = client.post(self.webhook_url, json=payload)
+                resp = client.post(self.webhook_url, json=send_payload)
                 if resp.status_code >= 300:
                     return False, f"discord status={resp.status_code} body={resp.text[:300]}"
             return True, "ok"
