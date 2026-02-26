@@ -62,7 +62,9 @@ def seed_sources_if_empty() -> None:
         desired_sources = [
             ("linkedin", "https://www.linkedin.com/jobs", True),
             ("cryptojobslist", "https://cryptojobslist.com", True),
+            ("cryptocurrencyjobs", "https://www.cryptocurrencyjobs.co", True),
             ("web3career", "https://web3.career", True),
+            ("web3jobsai", "https://web3jobs.ai/jobs", True),
             ("wellfound", "https://wellfound.com", True),
             ("dejob", "https://www.dejob.ai/job", True),
             ("abetterweb3", "https://abetterweb3.notion.site/daa095830b624e96af46de63fb9771b9", True),

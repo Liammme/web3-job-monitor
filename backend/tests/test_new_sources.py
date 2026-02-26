@@ -84,6 +84,8 @@ def test_abetterweb3_helpers_extract_company_and_job():
 def test_registry_uses_new_sources_and_removes_remote3():
     assert "dejob" in ADAPTERS
     assert "abetterweb3" in ADAPTERS
+    assert "web3jobsai" in ADAPTERS
+    assert "cryptocurrencyjobs" in ADAPTERS
     assert "remote3" not in ADAPTERS
 
 
@@ -105,5 +107,7 @@ def test_seed_adds_new_sources_and_disables_remote3(monkeypatch):
     src = {row.name: row for row in db.query(Source).all()}
     assert "dejob" in src
     assert "abetterweb3" in src
+    assert "web3jobsai" in src
+    assert "cryptocurrencyjobs" in src
     assert src["remote3"].enabled is False
     db.close()
