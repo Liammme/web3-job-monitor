@@ -58,15 +58,29 @@ def default_notification_config() -> dict:
 def seed_sources_if_empty() -> None:
     db = SessionLocal()
     try:
-        if db.query(Source).count() == 0:
-            rows = [
-                Source(name="linkedin", base_url="https://www.linkedin.com/jobs", enabled=True, crawl_config={}),
-                Source(name="cryptojobslist", base_url="https://cryptojobslist.com", enabled=True, crawl_config={}),
-                Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}),
-                Source(name="wellfound", base_url="https://wellfound.com", enabled=True, crawl_config={}),
-                Source(name="remote3", base_url="https://remote3.co", enabled=True, crawl_config={}),
-            ]
-            db.add_all(rows)
+        desired_sources = [
+            ("linkedin", "https://www.linkedin.com/jobs", True),
+            ("cryptojobslist", "https://cryptojobslist.com", True),
+            ("web3career", "https://web3.career", True),
+            ("wellfound", "https://wellfound.com", True),
+            ("dejob", "https://www.dejob.ai/job", True),
+            ("abetterweb3", "https://abetterweb3.notion.site/daa095830b624e96af46de63fb9771b9", True),
+        ]
+        existing = {s.name: s for s in db.query(Source).all()}
+        for name, base_url, enabled in desired_sources:
+            row = existing.get(name)
+            if row is None:
+                db.add(Source(name=name, base_url=base_url, enabled=enabled, crawl_config={}))
+            else:
+                row.base_url = base_url
+                row.enabled = enabled
+                db.add(row)
+
+        # Deprecated source: keep history but disable future crawling.
+        legacy_remote3 = existing.get("remote3")
+        if legacy_remote3 and legacy_remote3.enabled:
+            legacy_remote3.enabled = False
+            db.add(legacy_remote3)
 
         keys = {s.key for s in db.query(Setting).all()}
         if "scoring" not in keys:
