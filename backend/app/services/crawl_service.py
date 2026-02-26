@@ -650,7 +650,7 @@ def run_crawl(db: Session) -> dict:
     end_push_status = "skipped"
     end_push_error = ""
     if not send_errors:
-        end_ok, end_msg = notifier.send({"content": "[END_OF_PUSH] 今日岗位推送结束"})
+        end_ok, end_msg = notifier.send({"content": "[END_OF_PUSH] 今日岗位推送结束，请 @小米嘎 生成今日报告"})
         end_push_sent = end_ok
         end_push_status = "sent" if end_ok else "failed"
         end_push_error = "" if end_ok else end_msg
