@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web3 Job Monitor 预览</title>
+  <style>
+    :root {
+      --bg: #f7f3e9;
+      --card: #fffdf8;
+      --text: #1f1f1f;
+      --muted: #6d665d;
+      --accent: #0d7c66;
+      --line: #ddd2c2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top right, #ece5d8 0, var(--bg) 45%);
+    }
+    .shell { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .nav { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+    .nav a {
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      text-decoration: none;
+      color: var(--text);
+      background: #fff;
+    }
+    .nav a.active { background: #e4f3ee; border-color: #9fd3c7; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    h2 { margin: 0 0 10px; }
+    .table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table th, .table td { border-bottom: 1px solid var(--line); padding: 8px; text-align: left; }
+    .badge-high { color: #0f6f3f; font-weight: 700; }
+    .badge-low { color: #9a6a00; font-weight: 700; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>Web3 Job Monitor</h1>
+    <p class="muted">静态预览（仅看页面，不连后端）</p>
+
+    <div class="nav">
+      <a class="active" href="#">Jobs</a>
+      <a href="#">Runs</a>
+      <a href="#">Sources</a>
+      <a href="#">Settings</a>
+    </div>
+
+    <section class="card">
+      <h2>Jobs</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Company</th>
+            <th>Location</th>
+            <th>Score</th>
+            <th>Link</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Senior Solidity Engineer</td>
+            <td>Acme Protocol</td>
+            <td>Global Remote</td>
+            <td class="badge-high">84 (high)</td>
+            <td><a href="#">open</a></td>
+          </tr>
+          <tr>
+            <td>Rust Blockchain Developer</td>
+            <td>Rollup Labs</td>
+            <td>US / Remote</td>
+            <td class="badge-high">79 (high)</td>
+            <td><a href="#">open</a></td>
+          </tr>
+          <tr>
+            <td>Crypto Community Manager</td>
+            <td>Token House</td>
+            <td>APAC</td>
+            <td class="badge-low">42 (low)</td>
+            <td><a href="#">open</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Runs (示例)</h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Source</th><th>Status</th><th>Fetched</th><th>New</th><th>High</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>101</td><td>web3career</td><td>success</td><td>42</td><td>8</td><td>3</td></tr>
+          <tr><td>102</td><td>linkedin</td><td>success</td><td>30</td><td>4</td><td>1</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>
