@@ -29,6 +29,37 @@ def _in_quiet_hours(cfg: dict) -> bool:
     return hour >= start or hour < end
 
 
+def _pick_company_url(raw_payload: dict, fallback_url: str) -> str:
+    if isinstance(raw_payload, dict):
+        for key in ("company_url", "company_website", "companySite", "company_link"):
+            value = raw_payload.get(key)
+            if isinstance(value, str) and value.startswith("http"):
+                return value
+    return fallback_url
+
+
+def _build_company_summaries(company_stats: dict[str, dict]) -> list[dict]:
+    summaries: list[dict] = []
+    for stat in company_stats.values():
+        source_counts = stat["source_counts"]
+        main_source = sorted(source_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        avg_score = stat["score_sum"] / stat["new_jobs"] if stat["new_jobs"] else 0.0
+        summaries.append(
+            {
+                "company": stat["company"],
+                "new_jobs": stat["new_jobs"],
+                "max_score": round(stat["max_score"], 1),
+                "avg_score": round(avg_score, 1),
+                "company_url": stat["company_url"],
+                "main_source": main_source,
+                "main_source_website": stat["source_websites"].get(main_source, ""),
+            }
+        )
+
+    summaries.sort(key=lambda x: (-x["max_score"], -x["new_jobs"], x["company"].lower()))
+    return summaries
+
+
 def run_crawl(db: Session) -> dict:
     sources = db.query(Source).filter(Source.enabled.is_(True)).all()
     score_cfg = get_setting(db, "scoring")
@@ -41,6 +72,7 @@ def run_crawl(db: Session) -> dict:
     total_high = 0
     failed_sources: list[str] = []
     source_stats: list[dict] = []
+    company_stats: dict[str, dict] = {}
 
     for source in sources:
         run = CrawlRun(source_id=source.id, started_at=datetime.utcnow(), status="running")
@@ -134,15 +166,40 @@ def run_crawl(db: Session) -> dict:
                 db.add(score_row)
                 db.commit()
 
+                company_name = (record.company or "").strip() or "Unknown Company"
+                company_key = company_name.lower()
+                stat = company_stats.setdefault(
+                    company_key,
+                    {
+                        "company": company_name,
+                        "new_jobs": 0,
+                        "max_score": 0.0,
+                        "score_sum": 0.0,
+                        "company_url": "",
+                        "source_counts": {},
+                        "source_websites": {},
+                    },
+                )
+                stat["new_jobs"] += 1
+                stat["max_score"] = max(stat["max_score"], float(score_result.total_score))
+                stat["score_sum"] += float(score_result.total_score)
+                if not stat["company_url"]:
+                    stat["company_url"] = _pick_company_url(record.raw_payload, record.canonical_url)
+                stat["source_counts"][source.name] = stat["source_counts"].get(source.name, 0) + 1
+                stat["source_websites"][source.name] = source.base_url
+
                 if score_result.decision == "high":
                     high_count += 1
                     total_high += 1
                     if not quiet_hours:
+                        company_url = _pick_company_url(record.raw_payload, record.canonical_url)
                         payload = notifier.build_single_payload(
                             {
                                 "source_name": source.name,
+                                "source_website": source.base_url,
                                 "title": record.title,
                                 "company": record.company,
+                                "company_url": company_url,
                                 "location": record.location,
                                 "remote_type": record.remote_type,
                                 "canonical_url": record.canonical_url,
@@ -206,6 +263,7 @@ def run_crawl(db: Session) -> dict:
         "high_priority_jobs": total_high,
         "failed_sources": failed_sources,
         "source_stats": source_stats,
+        "company_summaries": _build_company_summaries(company_stats),
     }
 
     if not quiet_hours:

@@ -26,6 +26,15 @@ class FakeAdapter:
                 description="defi protocol",
             ),
             NormalizedJob(
+                source_job_id="job-2",
+                canonical_url="https://example.com/jobs/2",
+                title="Blockchain Engineer",
+                company="Beta",
+                location="",
+                remote_type="",
+                description="",
+            ),
+            NormalizedJob(
                 source_job_id="job-1",
                 canonical_url="https://example.com/jobs/1",
                 title="Senior Solidity Engineer",
@@ -68,7 +77,10 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
 
     result = run_crawl(db)
 
-    assert result["new_jobs"] == 1
+    assert result["new_jobs"] == 2
     assert result["high_priority_jobs"] == 1
-    assert db.query(Job).count() == 1
+    assert db.query(Job).count() == 2
     assert db.query(Notification).count() == 2  # single + digest
+    assert len(result["company_summaries"]) == 2
+    assert result["company_summaries"][0]["company"] == "Acme"
+    assert result["company_summaries"][0]["main_source"] == "web3career"
