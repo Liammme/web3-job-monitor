@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
+import re
 
 from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +16,10 @@ from app.services.notifier import DiscordNotifier
 from app.services.scoring import Scorer
 from app.services.settings_service import get_setting
 from app.utils.hash import job_fallback_hash
+
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+TELEGRAM_RE = re.compile(r"(https?://t\.me/[A-Za-z0-9_]+|@[A-Za-z0-9_]{5,})")
+URL_RE = re.compile(r"https?://[^\s<>()]+")
 
 
 def _in_quiet_hours(cfg: dict) -> bool:
@@ -38,6 +43,124 @@ def _pick_company_url(raw_payload: dict, fallback_url: str) -> str:
     return fallback_url
 
 
+def _sanitize_url(url: str) -> str:
+    cleaned = (url or "").strip()
+    if cleaned.endswith((".", ",", ";", ")", "]")):
+        cleaned = cleaned[:-1]
+    return cleaned
+
+
+def _normalize_role_title(text: str) -> str:
+    text = (text or "").strip()
+    text = text.lstrip("-•*·\t ")
+    text = re.sub(r"\s+", " ", text)
+    return text[:90]
+
+
+def _looks_like_role(text: str) -> bool:
+    lower = text.lower()
+    if len(text) < 3:
+        return False
+    noise_markers = ("以下岗位", "投递", "联系", "招聘需求", "岗位职责", "岗位要求")
+    if any(marker in text for marker in noise_markers):
+        return False
+    role_markers = (
+        "engineer",
+        "developer",
+        "manager",
+        "director",
+        "analyst",
+        "lead",
+        "architect",
+        "designer",
+        "solidity",
+        "backend",
+        "frontend",
+        "full stack",
+        "product",
+        "运营",
+        "工程师",
+        "产品",
+        "经理",
+        "总监",
+        "负责人",
+        "研究员",
+        "分析师",
+        "开发",
+        "设计",
+        "算法",
+        "增长",
+        "商务",
+        "BD",
+    )
+    return any(marker in lower for marker in role_markers) or any(marker in text for marker in role_markers)
+
+
+def _extract_role_candidates(title: str, description: str) -> list[str]:
+    text = "\n".join([title or "", (description or "")[:1200]])
+    rough_lines = re.split(r"[\n\r]+", text)
+    candidates: list[str] = []
+
+    for line in rough_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for part in re.split(r"[；;|]+", stripped):
+            normalized = _normalize_role_title(part)
+            if not normalized:
+                continue
+            if _looks_like_role(normalized):
+                candidates.append(normalized)
+
+    if not candidates:
+        fallback = _normalize_role_title((title or "").splitlines()[0] if title else "")
+        if fallback:
+            candidates.append(fallback)
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped[:6]
+
+
+def _extract_contact_clues(description: str, raw_payload: dict, company_url: str, canonical_url: str) -> dict:
+    text = description or ""
+    emails = set(EMAIL_RE.findall(text))
+    telegrams = set(TELEGRAM_RE.findall(text))
+    urls = {_sanitize_url(x) for x in URL_RE.findall(text)}
+
+    if isinstance(raw_payload, dict):
+        for value in raw_payload.values():
+            if isinstance(value, str):
+                emails.update(EMAIL_RE.findall(value))
+                telegrams.update(TELEGRAM_RE.findall(value))
+                urls.update({_sanitize_url(x) for x in URL_RE.findall(value)})
+
+    if company_url.startswith("http"):
+        urls.add(company_url)
+    if canonical_url.startswith("http"):
+        urls.add(canonical_url)
+
+    career_urls = {
+        u
+        for u in urls
+        if u.startswith("http") and any(k in u.lower() for k in ("job", "career", "apply", "recruit", "hiring"))
+    }
+    if canonical_url.startswith("http"):
+        career_urls.add(canonical_url)
+
+    return {
+        "emails": sorted(emails),
+        "telegrams": sorted(telegrams),
+        "career_urls": sorted(career_urls),
+    }
+
+
 def _contains_senior_signal(title: str) -> bool:
     lower = (title or "").lower()
     signals = ("senior", "staff", "lead", "principal", "manager", "director", "head")
@@ -52,6 +175,14 @@ def _classify_hiring_status(run_new: int, recent_7d: int, prev_7d: int) -> str:
     if run_new >= 3 or (prev_7d > 0 and recent_7d >= max(3, int(prev_7d * 1.5))):
         return "扩招"
     return "持续招"
+
+
+def _contact_recommendation_label(contact_priority: int, hiring_status: str) -> str:
+    if hiring_status in {"新开招", "扩招"} and contact_priority >= 65:
+        return "建议立即联系"
+    if contact_priority >= 45:
+        return "建议本周联系"
+    return "继续观察"
 
 
 def _contact_priority_score(
@@ -115,30 +246,80 @@ def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_ut
         contact_priority = _contact_priority_score(
             stat["new_jobs"], recent_7d, len(active_days_30d), len(source_ids_30d), senior_ratio_30d
         )
+        contact_action = _contact_recommendation_label(contact_priority, hiring_status)
+
+        first_seen_at = (
+            db.query(func.min(Job.collected_at)).filter(func.lower(Job.company) == company.lower()).scalar()
+        )
+        first_seen_text = first_seen_at.strftime("%Y-%m-%d") if first_seen_at else "N/A"
+
+        dedup_role_map: dict[str, dict] = {}
+        for role in stat["new_roles"]:
+            normalized_title = _clean_role_title(role.get("title") or "")
+            if not normalized_title:
+                continue
+            key = normalized_title.lower()
+            existing = dedup_role_map.get(key)
+            if existing is None or role["score"] > existing["score"]:
+                dedup_role_map[key] = {
+                    "title": normalized_title,
+                    "score": float(role["score"]),
+                    "url": role.get("url", ""),
+                    "location": role.get("location", ""),
+                    "employment_type": role.get("employment_type", ""),
+                    "posted_at": role.get("posted_at"),
+                }
 
         top_roles = sorted(
-            stat["new_roles"],
+            dedup_role_map.values(),
             key=lambda x: (-x["score"], x["title"].lower()),
-        )[:3]
-        role_briefs = [
-            {"title": _clean_role_title(item["title"]), "score": round(item["score"], 1), "url": item["url"]}
-            for item in top_roles
-        ]
+        )[:2]
+
+        role_briefs = []
+        for item in top_roles:
+            posted_at = item.get("posted_at")
+            if isinstance(posted_at, datetime):
+                posted_text = posted_at.strftime("%Y-%m-%d")
+            else:
+                posted_text = "N/A"
+            role_briefs.append(
+                {
+                    "title": item["title"],
+                    "score": round(item["score"], 1),
+                    "url": item["url"],
+                    "location": item.get("location") or "N/A",
+                    "employment_type": item.get("employment_type") or "N/A",
+                    "posted_at": posted_text,
+                }
+            )
+
+        clues = stat["contact_clues"]
+        emails = sorted(clues["emails"])
+        telegrams = sorted(clues["telegrams"])
+        career_urls = sorted(clues["career_urls"])
+        contact_clues = {
+            "email": emails[0] if emails else "N/A",
+            "telegram": telegrams[0] if telegrams else "N/A",
+            "career_url": career_urls[0] if career_urls else company_url or "N/A",
+        }
 
         summaries.append(
             {
                 "company": company,
                 "hiring_status": hiring_status,
                 "contact_priority": contact_priority,
+                "contact_action": contact_action,
                 "new_jobs": stat["new_jobs"],
                 "recent_7d": recent_7d,
                 "recent_30d": recent_30d,
+                "first_seen_at": first_seen_text,
                 "max_score": round(stat["max_score"], 1),
                 "avg_score": round(avg_score, 1),
                 "company_url": company_url,
                 "main_source": main_source,
                 "main_source_website": stat["source_websites"].get(main_source, ""),
                 "top_roles": role_briefs,
+                "contact_clues": contact_clues,
             }
         )
 
@@ -266,6 +447,7 @@ def run_crawl(db: Session) -> dict:
                         "source_counts": {},
                         "source_websites": {},
                         "new_roles": [],
+                        "contact_clues": {"emails": set(), "telegrams": set(), "career_urls": set()},
                     },
                 )
                 stat["new_jobs"] += 1
@@ -275,13 +457,24 @@ def run_crawl(db: Session) -> dict:
                     stat["company_url"] = _pick_company_url(record.raw_payload, record.canonical_url)
                 stat["source_counts"][source.name] = stat["source_counts"].get(source.name, 0) + 1
                 stat["source_websites"][source.name] = source.base_url
-                stat["new_roles"].append(
-                    {
-                        "title": record.title,
-                        "score": float(score_result.total_score),
-                        "url": record.canonical_url,
-                    }
-                )
+
+                role_candidates = _extract_role_candidates(record.title, record.description)
+                for role_title in role_candidates:
+                    stat["new_roles"].append(
+                        {
+                            "title": role_title,
+                            "score": float(score_result.total_score),
+                            "url": record.canonical_url,
+                            "location": record.location,
+                            "employment_type": record.employment_type,
+                            "posted_at": record.posted_at,
+                        }
+                    )
+
+                clues = _extract_contact_clues(record.description, record.raw_payload, stat["company_url"], record.canonical_url)
+                stat["contact_clues"]["emails"].update(clues["emails"])
+                stat["contact_clues"]["telegrams"].update(clues["telegrams"])
+                stat["contact_clues"]["career_urls"].update(clues["career_urls"])
 
                 if score_result.decision == "high":
                     high_count += 1

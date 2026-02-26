@@ -52,30 +52,51 @@ def test_digest_payload_company_section():
                     "company": "B Corp",
                     "hiring_status": "扩招",
                     "contact_priority": 85,
+                    "contact_action": "建议立即联系",
                     "new_jobs": 2,
                     "recent_7d": 6,
                     "recent_30d": 20,
+                    "first_seen_at": "2026-02-01",
                     "max_score": 88.0,
                     "avg_score": 75.0,
                     "company_url": "https://b.example.com",
                     "main_source": "web3career",
                     "main_source_website": "https://web3.career",
+                    "contact_clues": {
+                        "email": "hr@b.example.com",
+                        "telegram": "@bhrteam",
+                        "career_url": "https://b.example.com/jobs",
+                    },
                     "top_roles": [
-                        {"title": "Senior Solidity Engineer", "score": 92.0, "url": "https://x/jobs/1"},
+                        {
+                            "title": "Senior Solidity Engineer",
+                            "score": 92.0,
+                            "url": "https://x/jobs/1",
+                            "posted_at": "2026-02-26",
+                            "location": "Remote",
+                            "employment_type": "FULL_TIME",
+                        },
                     ],
                 },
                 {
                     "company": "A Corp",
                     "hiring_status": "新开招",
                     "contact_priority": 72,
+                    "contact_action": "建议本周联系",
                     "new_jobs": 2,
                     "recent_7d": 2,
                     "recent_30d": 2,
+                    "first_seen_at": "2026-02-26",
                     "max_score": 92.0,
                     "avg_score": 79.0,
                     "company_url": "https://a.example.com",
                     "main_source": "linkedin",
                     "main_source_website": "https://linkedin.com/jobs",
+                    "contact_clues": {
+                        "email": "N/A",
+                        "telegram": "N/A",
+                        "career_url": "https://a.example.com/jobs",
+                    },
                     "top_roles": [],
                 },
             ],
@@ -88,5 +109,7 @@ def test_digest_payload_company_section():
     assert "来源网站（主要）" in content
     assert "联系优先级" in content
     assert "重点岗位" in content
+    assert "联系线索" in content
+    assert "首次发现招聘" in content
     # Notifier should output companies in provided order; sorting is verified in crawl_service test.
     assert content.index("B Corp") < content.index("A Corp")

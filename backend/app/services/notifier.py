@@ -56,20 +56,27 @@ class DiscordNotifier:
             lines.append("- 暂无新增公司")
         for item in companies:
             lines.append(
-                f"- {item['company']}｜状态 {item['hiring_status']}｜联系优先级 {item['contact_priority']}"
+                f"- {item['company']}｜状态 {item['hiring_status']}｜联系优先级 {item['contact_priority']}｜{item['contact_action']}"
             )
             lines.append(
                 f"  新增岗位 {item['new_jobs']}（近7天 {item['recent_7d']}｜近30天 {item['recent_30d']}）"
             )
+            lines.append(f"  首次发现招聘：{item.get('first_seen_at') or 'N/A'}")
             lines.append(f"  公司网址：{item['company_url'] or 'N/A'}")
             lines.append(
                 f"  来源网站（主要）：{item['main_source']} ({item.get('main_source_website') or 'N/A'})"
+            )
+            clues = item.get("contact_clues") or {}
+            lines.append(
+                f"  联系线索：邮箱 {clues.get('email', 'N/A')}｜Telegram {clues.get('telegram', 'N/A')}｜招聘页 {clues.get('career_url', 'N/A')}"
             )
             top_roles = item.get("top_roles", [])
             if top_roles:
                 lines.append("  重点岗位：")
                 for role in top_roles:
-                    lines.append(f"   - {role['title']}｜评分 {role['score']}｜链接 {role['url']}")
+                    lines.append(
+                        f"   - {role['title']}｜评分 {role['score']}｜发布时间 {role.get('posted_at', 'N/A')}｜{role.get('location', 'N/A')}｜{role.get('employment_type', 'N/A')}｜{role['url']}"
+                    )
 
         lines.extend(
             [

@@ -19,11 +19,11 @@ class FakeAdapter:
             NormalizedJob(
                 source_job_id="job-1",
                 canonical_url="https://example.com/jobs/1",
-                title="Senior Solidity Engineer",
+                title="Senior Operations Manager\nBackend Engineer",
                 company="Acme",
                 location="global",
                 remote_type="remote",
-                description="defi protocol",
+                description="smart contract defi protocol contact hr@acme.io telegram @acme_hr",
             ),
             NormalizedJob(
                 source_job_id="job-2",
@@ -37,11 +37,11 @@ class FakeAdapter:
             NormalizedJob(
                 source_job_id="job-1",
                 canonical_url="https://example.com/jobs/1",
-                title="Senior Solidity Engineer",
+                title="Senior Operations Manager\nBackend Engineer",
                 company="Acme",
                 location="global",
                 remote_type="remote",
-                description="defi protocol",
+                description="smart contract defi protocol contact hr@acme.io telegram @acme_hr",
             ),
         ]
 
@@ -86,4 +86,8 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert result["company_summaries"][0]["main_source"] == "web3career"
     assert "hiring_status" in result["company_summaries"][0]
     assert "contact_priority" in result["company_summaries"][0]
+    assert "contact_action" in result["company_summaries"][0]
+    assert result["company_summaries"][0]["contact_clues"]["email"] == "hr@acme.io"
     assert result["company_summaries"][0]["top_roles"]
+    assert len(result["company_summaries"][0]["top_roles"]) <= 2
+    assert "\n" not in result["company_summaries"][0]["top_roles"][0]["title"]
