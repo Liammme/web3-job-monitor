@@ -646,6 +646,32 @@ def run_crawl(db: Session) -> dict:
         if not ok:
             send_errors.append(msg)
 
+    end_push_sent = False
+    end_push_status = "skipped"
+    end_push_error = ""
+    reached_daily_limit_this_run = remaining_quota > 0 and len(selected_jobs) >= remaining_quota
+    if not send_errors and reached_daily_limit_this_run:
+        day_start = datetime(now_utc.year, now_utc.month, now_utc.day)
+        day_end = day_start + timedelta(days=1)
+        existing_end_notice = (
+            db.query(Notification)
+            .filter(
+                Notification.channel == "discord",
+                Notification.mode == "end_of_push",
+                Notification.status == "sent",
+                Notification.sent_at >= day_start,
+                Notification.sent_at < day_end,
+            )
+            .first()
+        )
+        if existing_end_notice is None:
+            end_ok, end_msg = notifier.send({"content": "[END_OF_PUSH] 今日岗位推送结束"})
+            end_push_sent = end_ok
+            end_push_status = "sent" if end_ok else "failed"
+            end_push_error = "" if end_ok else end_msg
+        else:
+            end_push_status = "already_sent"
+
     db.add(
         Notification(
             job_id=None,
@@ -663,6 +689,16 @@ def run_crawl(db: Session) -> dict:
                 mode="job_digest_item",
                 status="sent" if not send_errors else "failed",
                 error="" if not send_errors else "digest send failed",
+            )
+        )
+    if reached_daily_limit_this_run and end_push_status in {"sent", "failed"}:
+        db.add(
+            Notification(
+                job_id=None,
+                channel="discord",
+                mode="end_of_push",
+                status="sent" if end_push_sent else "failed",
+                error=end_push_error[:2000],
             )
         )
     db.commit()
