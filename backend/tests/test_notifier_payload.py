@@ -14,14 +14,15 @@ def test_single_payload_shape():
             "remote_type": "remote",
             "canonical_url": "https://web3.career/job/1",
         },
-        {"total_score": 84, "decision": "high", "matched_keywords": ["solidity", "defi"]},
+        {"total_score": 84, "decision": "high"},
         run_id=9,
     )
 
     assert "embeds" in payload
     assert payload["embeds"][0]["title"].startswith("[HIGH]")
-    assert "run_id=9" in payload["embeds"][0]["footer"]["text"]
+    assert "crawl_at=" in payload["embeds"][0]["footer"]["text"]
     assert "公司网址" in payload["embeds"][0]["description"]
+    assert "命中关键词" not in payload["embeds"][0]["description"]
 
 
 def test_digest_payload_company_section():
@@ -36,21 +37,33 @@ def test_digest_payload_company_section():
             "company_summaries": [
                 {
                     "company": "B Corp",
+                    "hiring_status": "扩招",
+                    "contact_priority": 85,
                     "new_jobs": 2,
+                    "recent_7d": 6,
+                    "recent_30d": 20,
                     "max_score": 88.0,
                     "avg_score": 75.0,
                     "company_url": "https://b.example.com",
                     "main_source": "web3career",
                     "main_source_website": "https://web3.career",
+                    "top_roles": [
+                        {"title": "Senior Solidity Engineer", "score": 92.0, "url": "https://x/jobs/1"},
+                    ],
                 },
                 {
                     "company": "A Corp",
+                    "hiring_status": "新开招",
+                    "contact_priority": 72,
                     "new_jobs": 2,
+                    "recent_7d": 2,
+                    "recent_30d": 2,
                     "max_score": 92.0,
                     "avg_score": 79.0,
                     "company_url": "https://a.example.com",
                     "main_source": "linkedin",
                     "main_source_website": "https://linkedin.com/jobs",
+                    "top_roles": [],
                 },
             ],
         }
@@ -60,5 +73,7 @@ def test_digest_payload_company_section():
     assert "最近有招聘需求的公司" in content
     assert "公司网址" in content
     assert "来源网站（主要）" in content
+    assert "联系优先级" in content
+    assert "重点岗位" in content
     # Notifier should output companies in provided order; sorting is verified in crawl_service test.
     assert content.index("B Corp") < content.index("A Corp")

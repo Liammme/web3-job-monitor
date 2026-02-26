@@ -1,7 +1,7 @@
 from __future__ import annotations
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -38,25 +38,111 @@ def _pick_company_url(raw_payload: dict, fallback_url: str) -> str:
     return fallback_url
 
 
-def _build_company_summaries(company_stats: dict[str, dict]) -> list[dict]:
+def _contains_senior_signal(title: str) -> bool:
+    lower = (title or "").lower()
+    signals = ("senior", "staff", "lead", "principal", "manager", "director", "head")
+    return any(s in lower for s in signals)
+
+
+def _classify_hiring_status(run_new: int, recent_7d: int, prev_7d: int) -> str:
+    if run_new <= 0:
+        return "无新增"
+    if prev_7d == 0 and recent_7d == run_new:
+        return "新开招"
+    if run_new >= 3 or (prev_7d > 0 and recent_7d >= max(3, int(prev_7d * 1.5))):
+        return "扩招"
+    return "持续招"
+
+
+def _contact_priority_score(
+    run_new: int, recent_7d: int, active_days_30d: int, source_count_30d: int, senior_ratio_30d: float
+) -> int:
+    heat = min(40.0, recent_7d * 6 + run_new * 4)
+    continuity = min(20.0, active_days_30d * 3)
+    source_confidence = min(20.0, source_count_30d * 8)
+    senior_weight = min(20.0, senior_ratio_30d * 20)
+    return int(round(heat + continuity + source_confidence + senior_weight))
+
+
+def _clean_role_title(title: str) -> str:
+    text = (title or "").splitlines()[0].strip()
+    return " ".join(text.split())[:80]
+
+
+def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_utc: datetime) -> list[dict]:
     summaries: list[dict] = []
     for stat in company_stats.values():
+        company = stat["company"]
+        if company.strip().lower() == "unknown company":
+            continue
+
         source_counts = stat["source_counts"]
         main_source = sorted(source_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
         avg_score = stat["score_sum"] / stat["new_jobs"] if stat["new_jobs"] else 0.0
+        company_url = stat["company_url"]
+
+        company_rows = (
+            db.query(Job, JobScore)
+            .outerjoin(JobScore, Job.id == JobScore.job_id)
+            .filter(
+                func.lower(Job.company) == company.lower(),
+                Job.collected_at >= now_utc - timedelta(days=30),
+            )
+            .all()
+        )
+        recent_30d = len(company_rows)
+        recent_7d = 0
+        prev_7d = 0
+        active_days_30d: set = set()
+        senior_count_30d = 0
+        source_ids_30d: set = set()
+
+        for job, _score in company_rows:
+            collected = job.collected_at
+            if not collected:
+                continue
+            active_days_30d.add(collected.date())
+            source_ids_30d.add(job.source_id)
+            if _contains_senior_signal(job.title):
+                senior_count_30d += 1
+            if collected >= now_utc - timedelta(days=7):
+                recent_7d += 1
+            elif collected >= now_utc - timedelta(days=14):
+                prev_7d += 1
+
+        senior_ratio_30d = (senior_count_30d / recent_30d) if recent_30d else 0.0
+        hiring_status = _classify_hiring_status(stat["new_jobs"], recent_7d, prev_7d)
+        contact_priority = _contact_priority_score(
+            stat["new_jobs"], recent_7d, len(active_days_30d), len(source_ids_30d), senior_ratio_30d
+        )
+
+        top_roles = sorted(
+            stat["new_roles"],
+            key=lambda x: (-x["score"], x["title"].lower()),
+        )[:3]
+        role_briefs = [
+            {"title": _clean_role_title(item["title"]), "score": round(item["score"], 1), "url": item["url"]}
+            for item in top_roles
+        ]
+
         summaries.append(
             {
-                "company": stat["company"],
+                "company": company,
+                "hiring_status": hiring_status,
+                "contact_priority": contact_priority,
                 "new_jobs": stat["new_jobs"],
+                "recent_7d": recent_7d,
+                "recent_30d": recent_30d,
                 "max_score": round(stat["max_score"], 1),
                 "avg_score": round(avg_score, 1),
-                "company_url": stat["company_url"],
+                "company_url": company_url,
                 "main_source": main_source,
                 "main_source_website": stat["source_websites"].get(main_source, ""),
+                "top_roles": role_briefs,
             }
         )
 
-    summaries.sort(key=lambda x: (-x["max_score"], -x["new_jobs"], x["company"].lower()))
+    summaries.sort(key=lambda x: (-x["max_score"], -x["contact_priority"], -x["new_jobs"], x["company"].lower()))
     return summaries
 
 
@@ -67,6 +153,7 @@ def run_crawl(db: Session) -> dict:
     scorer = Scorer(score_cfg)
     notifier = DiscordNotifier(notify_cfg.get("discord_webhook_url") or "")
     quiet_hours = _in_quiet_hours(notify_cfg)
+    now_utc = datetime.utcnow()
 
     total_new = 0
     total_high = 0
@@ -178,6 +265,7 @@ def run_crawl(db: Session) -> dict:
                         "company_url": "",
                         "source_counts": {},
                         "source_websites": {},
+                        "new_roles": [],
                     },
                 )
                 stat["new_jobs"] += 1
@@ -187,6 +275,13 @@ def run_crawl(db: Session) -> dict:
                     stat["company_url"] = _pick_company_url(record.raw_payload, record.canonical_url)
                 stat["source_counts"][source.name] = stat["source_counts"].get(source.name, 0) + 1
                 stat["source_websites"][source.name] = source.base_url
+                stat["new_roles"].append(
+                    {
+                        "title": record.title,
+                        "score": float(score_result.total_score),
+                        "url": record.canonical_url,
+                    }
+                )
 
                 if score_result.decision == "high":
                     high_count += 1
@@ -207,7 +302,6 @@ def run_crawl(db: Session) -> dict:
                             {
                                 "total_score": score_result.total_score,
                                 "decision": score_result.decision,
-                                "matched_keywords": score_result.matched_keywords,
                             },
                             run.id,
                         )
@@ -263,7 +357,7 @@ def run_crawl(db: Session) -> dict:
         "high_priority_jobs": total_high,
         "failed_sources": failed_sources,
         "source_stats": source_stats,
-        "company_summaries": _build_company_summaries(company_stats),
+        "company_summaries": _build_company_summaries(db, company_stats, now_utc),
     }
 
     if not quiet_hours:

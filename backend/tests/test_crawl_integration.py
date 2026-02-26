@@ -84,3 +84,6 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert len(result["company_summaries"]) == 2
     assert result["company_summaries"][0]["company"] == "Acme"
     assert result["company_summaries"][0]["main_source"] == "web3career"
+    assert "hiring_status" in result["company_summaries"][0]
+    assert "contact_priority" in result["company_summaries"][0]
+    assert result["company_summaries"][0]["top_roles"]
