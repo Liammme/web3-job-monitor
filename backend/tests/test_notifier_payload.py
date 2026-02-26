@@ -1,4 +1,6 @@
 from __future__ import annotations
+from datetime import datetime
+
 from app.services.notifier import DiscordNotifier
 
 
@@ -10,19 +12,30 @@ def test_single_payload_shape():
             "company": "Acme",
             "company_url": "https://acme.org",
             "source_website": "https://web3.career",
+            "posted_at": datetime(2026, 2, 26, 8, 49, 4),
             "location": "global",
             "remote_type": "remote",
             "canonical_url": "https://web3.career/job/1",
         },
-        {"total_score": 84, "decision": "high"},
+        {
+            "total_score": 84,
+            "decision": "high",
+            "keyword_score": 48,
+            "seniority_score": 20,
+            "remote_bonus": 10,
+            "region_bonus": 6,
+        },
         run_id=9,
     )
 
     assert "embeds" in payload
     assert payload["embeds"][0]["title"].startswith("[HIGH]")
-    assert "crawl_at=" in payload["embeds"][0]["footer"]["text"]
     assert "公司网址" in payload["embeds"][0]["description"]
+    assert "公司名" in payload["embeds"][0]["description"]
+    assert "岗位发布时间" in payload["embeds"][0]["description"]
+    assert "评分计算" in payload["embeds"][0]["description"]
     assert "命中关键词" not in payload["embeds"][0]["description"]
+    assert "footer" not in payload["embeds"][0]
 
 
 def test_digest_payload_company_section():

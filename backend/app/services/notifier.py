@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone
+from datetime import datetime
 
 import httpx
 
@@ -10,21 +10,36 @@ class DiscordNotifier:
 
     @staticmethod
     def build_single_payload(job: dict, score: dict, run_id: int) -> dict:
+        posted_at = job.get("posted_at")
+        if isinstance(posted_at, datetime):
+            posted_text = posted_at.strftime("%Y-%m-%d %H:%M UTC")
+        else:
+            posted_text = str(posted_at or "N/A")
+
+        job_title = " ".join(str(job.get("title") or "").splitlines()[0].split())
+        if len(job_title) > 110:
+            job_title = f"{job_title[:107]}..."
+
         desc = (
+            f"**公司名:** {job.get('company') or 'N/A'}\n"
             f"**来源:** {job['source_name']}\n"
             f"**来源网站:** {job.get('source_website') or 'N/A'}\n"
             f"**公司网址:** {job.get('company_url') or 'N/A'}\n"
+            f"**岗位发布时间:** {posted_text}\n"
             f"**地点:** {job.get('location') or 'N/A'}\n"
             f"**远程类型:** {job.get('remote_type') or 'N/A'}\n"
-            f"**岗位评分:** {score['total_score']} ({score['decision']})"
+            f"**岗位评分:** {score['total_score']} ({score['decision']})\n"
+            f"**评分计算:** 关键词 {score.get('keyword_score', 0)} + "
+            f"级别 {score.get('seniority_score', 0)} + "
+            f"远程 {score.get('remote_bonus', 0)} + "
+            f"地区 {score.get('region_bonus', 0)}"
         )
         return {
             "embeds": [
                 {
-                    "title": f"[HIGH] {job['title']} @ {job.get('company') or 'Unknown'}",
+                    "title": f"[HIGH] {job_title}",
                     "description": desc,
                     "url": job["canonical_url"],
-                    "footer": {"text": f"crawl_at={datetime.now(timezone.utc).isoformat()}"},
                 }
             ]
         }

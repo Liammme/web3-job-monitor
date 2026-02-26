@@ -295,6 +295,7 @@ def run_crawl(db: Session) -> dict:
                                 "title": record.title,
                                 "company": record.company,
                                 "company_url": company_url,
+                                "posted_at": record.posted_at,
                                 "location": record.location,
                                 "remote_type": record.remote_type,
                                 "canonical_url": record.canonical_url,
@@ -302,6 +303,10 @@ def run_crawl(db: Session) -> dict:
                             {
                                 "total_score": score_result.total_score,
                                 "decision": score_result.decision,
+                                "keyword_score": score_result.keyword_score,
+                                "seniority_score": score_result.seniority_score,
+                                "remote_bonus": score_result.remote_bonus,
+                                "region_bonus": score_result.region_bonus,
                             },
                             run.id,
                         )
