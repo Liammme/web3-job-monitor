@@ -1,6 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 
+from app.services import notifier as notifier_module
 from app.services.notifier import DiscordNotifier
 
 
@@ -260,3 +261,79 @@ def test_digest_payload_uses_selected_jobs_section_when_present():
     assert "本轮岗位推送（按评分+级别排序）" in content
     assert "Acme | Senior Solidity Engineer | 评分 92.0" in content
     assert "超上限未推送岗位（公司+岗位名" in content
+
+
+def test_send_uses_discord_bot_when_configured(monkeypatch):
+    calls: list[tuple] = []
+
+    class _Resp:
+        def __init__(self, status_code: int = 200, text: str = "ok"):
+            self.status_code = status_code
+            self.text = text
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            calls.append((url, headers, json))
+            return _Resp(200, "ok")
+
+    monkeypatch.setattr(notifier_module.httpx, "Client", _Client)
+
+    notifier = DiscordNotifier(
+        webhook_url="https://discord.com/api/webhooks/fallback",
+        bot_token="bot-token",
+        channel_id="123456",
+    )
+    ok, _ = notifier.send({"content": "hello"})
+
+    assert ok is True
+    assert calls
+    assert calls[0][0] == "https://discord.com/api/v10/channels/123456/messages"
+    assert calls[0][1]["Authorization"] == "Bot bot-token"
+
+
+def test_send_falls_back_to_webhook_when_bot_fails(monkeypatch):
+    calls: list[str] = []
+
+    class _Resp:
+        def __init__(self, status_code: int, text: str = ""):
+            self.status_code = status_code
+            self.text = text
+
+    class _Client:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            calls.append(url)
+            if "api/v10/channels" in url:
+                return _Resp(403, "forbidden")
+            return _Resp(204, "")
+
+    monkeypatch.setattr(notifier_module.httpx, "Client", _Client)
+
+    notifier = DiscordNotifier(
+        webhook_url="https://discord.com/api/webhooks/fallback",
+        bot_token="bot-token",
+        channel_id="123456",
+    )
+    ok, _ = notifier.send({"content": "hello"})
+
+    assert ok is True
+    assert len(calls) == 2
+    assert "api/v10/channels/123456/messages" in calls[0]
+    assert "api/webhooks/fallback" in calls[1]

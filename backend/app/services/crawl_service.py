@@ -355,7 +355,11 @@ def run_crawl(db: Session) -> dict:
     score_cfg = get_setting(db, "scoring")
     notify_cfg = get_setting(db, "notifications")
     scorer = Scorer(score_cfg)
-    notifier = DiscordNotifier(notify_cfg.get("discord_webhook_url") or "")
+    notifier = DiscordNotifier(
+        webhook_url=notify_cfg.get("discord_webhook_url") or "",
+        bot_token=notify_cfg.get("discord_bot_token") or "",
+        channel_id=notify_cfg.get("discord_channel_id") or "",
+    )
     quiet_hours = _in_quiet_hours(notify_cfg)
     now_utc = datetime.utcnow()
 

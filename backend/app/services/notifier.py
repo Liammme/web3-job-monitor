@@ -9,8 +9,10 @@ class DiscordNotifier:
     MAX_DETAILED_COMPANIES = 20
     MIN_DETAILED_PER_SOURCE = 2
 
-    def __init__(self, webhook_url: str):
+    def __init__(self, webhook_url: str, bot_token: str = "", channel_id: str = ""):
         self.webhook_url = webhook_url
+        self.bot_token = bot_token
+        self.channel_id = channel_id
 
     @staticmethod
     def build_single_payload(job: dict, score: dict, run_id: int) -> dict:
@@ -230,17 +232,33 @@ class DiscordNotifier:
         return {"content": "Web3 招聘监控汇总: 无数据"}
 
     def send(self, payload: dict) -> tuple[bool, str]:
-        if not self.webhook_url:
-            return False, "webhook not configured"
+        if not self.bot_token and not self.webhook_url:
+            return False, "discord notifier not configured"
         try:
             send_payload = dict(payload)
             # Suppress Discord automatic link preview cards in digest text messages.
             if "embeds" not in send_payload and "flags" not in send_payload:
                 send_payload["flags"] = 4
+
             with httpx.Client(timeout=20) as client:
+                if self.bot_token and self.channel_id:
+                    bot_url = f"https://discord.com/api/v10/channels/{self.channel_id}/messages"
+                    resp = client.post(
+                        bot_url,
+                        headers={
+                            "Authorization": f"Bot {self.bot_token}",
+                            "Content-Type": "application/json",
+                        },
+                        json=send_payload,
+                    )
+                    if resp.status_code < 300:
+                        return True, "ok"
+                    if not self.webhook_url:
+                        return False, f"discord bot status={resp.status_code} body={resp.text[:300]}"
+
                 resp = client.post(self.webhook_url, json=send_payload)
                 if resp.status_code >= 300:
-                    return False, f"discord status={resp.status_code} body={resp.text[:300]}"
+                    return False, f"discord webhook status={resp.status_code} body={resp.text[:300]}"
             return True, "ok"
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)

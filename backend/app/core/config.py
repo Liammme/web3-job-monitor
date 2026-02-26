@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 24
 
     discord_webhook_url: str = ""
+    discord_bot_token: str = ""
+    discord_channel_id: str = ""
 
 
 settings = Settings()

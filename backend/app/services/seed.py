@@ -50,6 +50,8 @@ def default_score_config() -> dict:
 def default_notification_config() -> dict:
     return {
         "discord_webhook_url": settings.discord_webhook_url,
+        "discord_bot_token": settings.discord_bot_token,
+        "discord_channel_id": settings.discord_channel_id,
         "quiet_hours_start_utc": None,
         "quiet_hours_end_utc": None,
         "daily_job_push_limit": 50,
