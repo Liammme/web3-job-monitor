@@ -115,9 +115,8 @@ def test_digest_payload_company_section():
         }
     )
 
-    assert payload["content"] == "Web3 招聘监控汇总（单条消息）"
-    assert payload["embeds"]
-    content = "\n".join(embed["description"] for embed in payload["embeds"])
+    assert isinstance(payload.get("content"), str)
+    content = payload.get("_file_text", payload["content"])
     assert "最近有招聘需求的公司" in content
     assert "公司网址" in content
     assert "来源网站（主要）" in content
@@ -126,5 +125,46 @@ def test_digest_payload_company_section():
     assert "联系线索" in content
     assert "首次发现招聘" in content
     assert "高优先岗位明细（本轮）" in content
-    # Notifier should output companies in provided order; sorting is verified in crawl_service test.
     assert content.index("B Corp") < content.index("A Corp")
+
+
+def test_digest_payload_attaches_file_when_too_long():
+    summary = {
+        "new_jobs": 1,
+        "high_priority_jobs": 0,
+        "failed_sources": [],
+        "source_stats": [],
+        "high_jobs": [],
+        "company_summaries": [
+            {
+                "company": f"Company{i}",
+                "hiring_status": "持续招",
+                "contact_priority": 50,
+                "contact_action": "建议本周联系",
+                "new_jobs": 1,
+                "recent_7d": 1,
+                "recent_30d": 2,
+                "first_seen_at": "2026-02-26",
+                "max_score": 88.0,
+                "avg_score": 75.0,
+                "company_url": "https://example.com",
+                "main_source": "dejob",
+                "main_source_website": "https://www.dejob.ai/job",
+                "contact_clues": {"email": "N/A", "telegram": "N/A", "career_url": "https://example.com/jobs"},
+                "top_roles": [
+                    {
+                        "title": "Very Long Role Name For Stress Test",
+                        "score": 80.0,
+                        "url": "https://example.com/jobs/1",
+                        "posted_at": "2026-02-26",
+                        "location": "Remote",
+                        "employment_type": "FULL_TIME",
+                    }
+                ],
+            }
+            for i in range(50)
+        ],
+    }
+    payload = DiscordNotifier.build_digest_payload(summary)
+    assert "_file_text" in payload
+    assert payload["_file_name"] == "web3_digest.txt"

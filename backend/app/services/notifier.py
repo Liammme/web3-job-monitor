@@ -1,5 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
+import json
 
 import httpx
 
@@ -99,39 +100,32 @@ class DiscordNotifier:
                 )
 
         full_text = "\n".join(lines)
-        chunks: list[str] = []
-        current: list[str] = []
-        current_len = 0
-        for line in full_text.split("\n"):
-            add_len = len(line) + 1
-            if current and current_len + add_len > 3800:
-                chunks.append("\n".join(current))
-                current = [line]
-                current_len = add_len
-            else:
-                current.append(line)
-                current_len += add_len
-        if current:
-            chunks.append("\n".join(current))
-
-        embeds = []
-        for idx, chunk in enumerate(chunks[:10], start=1):
-            embeds.append(
-                {
-                    "title": f"招聘监控汇总 {idx}/{len(chunks)}",
-                    "description": chunk,
-                }
-            )
-
-        # 单次 crawl 仅发一条 Discord 消息，便于后续 AI 统一分析。
-        return {"content": "Web3 招聘监控汇总（单条消息）", "embeds": embeds}
+        # Discord content length limit is 2000. If the report is long, keep one
+        # message and attach full text as a file so downstream bots can parse it.
+        if len(full_text) <= 1900:
+            return {"content": full_text}
+        return {
+            "content": "Web3 招聘监控汇总（完整版见附件 web3_digest.txt）",
+            "_file_text": full_text,
+            "_file_name": "web3_digest.txt",
+        }
 
     def send(self, payload: dict) -> tuple[bool, str]:
         if not self.webhook_url:
             return False, "webhook not configured"
         try:
+            file_text = payload.get("_file_text")
+            file_name = payload.get("_file_name", "digest.txt")
+            base_payload = {k: v for k, v in payload.items() if not k.startswith("_")}
             with httpx.Client(timeout=20) as client:
-                resp = client.post(self.webhook_url, json=payload)
+                if isinstance(file_text, str) and file_text:
+                    resp = client.post(
+                        self.webhook_url,
+                        data={"payload_json": json.dumps(base_payload, ensure_ascii=False)},
+                        files={"file": (file_name, file_text.encode("utf-8"), "text/plain; charset=utf-8")},
+                    )
+                else:
+                    resp = client.post(self.webhook_url, json=base_payload)
                 if resp.status_code >= 300:
                     return False, f"discord status={resp.status_code} body={resp.text[:300]}"
             return True, "ok"
