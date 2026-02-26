@@ -1,4 +1,5 @@
 from __future__ import annotations
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -15,6 +16,7 @@ from app.services.seed import default_notification_config, default_score_config
 
 class FakeAdapter:
     def fetch(self):
+        now = datetime.utcnow()
         return [
             NormalizedJob(
                 source_job_id="job-1",
@@ -24,6 +26,7 @@ class FakeAdapter:
                 location="global",
                 remote_type="remote",
                 description="smart contract defi protocol contact hr@acme.io telegram @acme_hr",
+                posted_at=now - timedelta(hours=3),
             ),
             NormalizedJob(
                 source_job_id="job-2",
@@ -33,6 +36,7 @@ class FakeAdapter:
                 location="",
                 remote_type="",
                 description="",
+                posted_at=now - timedelta(hours=12),
             ),
             NormalizedJob(
                 source_job_id="job-1",
@@ -42,7 +46,22 @@ class FakeAdapter:
                 location="global",
                 remote_type="remote",
                 description="smart contract defi protocol contact hr@acme.io telegram @acme_hr",
+                posted_at=now - timedelta(hours=3),
             ),
+        ]
+
+
+class OldOnlyAdapter:
+    def fetch(self):
+        return [
+            NormalizedJob(
+                source_job_id="old-1",
+                canonical_url="https://example.com/jobs/old-1",
+                title="Senior Solidity Engineer",
+                company="Gamma",
+                description="smart contract",
+                posted_at=datetime.utcnow() - timedelta(days=3),
+            )
         ]
 
 
@@ -93,3 +112,24 @@ def test_run_crawl_dedupes_and_notifies(monkeypatch):
     assert "\n" not in result["company_summaries"][0]["top_roles"][0]["title"]
     assert result["company_summaries"][0]["top_roles"][0]["posted_at"] != "N/A"
     assert result["high_jobs"]
+
+
+def test_run_crawl_filters_out_jobs_older_than_24h(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    db.add(Setting(key="notifications", value=default_notification_config()))
+    db.commit()
+
+    monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", OldOnlyAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
+
+    result = run_crawl(db)
+
+    assert result["new_jobs"] == 0
+    assert result["high_priority_jobs"] == 0
+    assert db.query(Job).count() == 0

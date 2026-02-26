@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import re
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
@@ -10,6 +11,27 @@ from app.crawlers.base import SourceAdapter
 
 class LinkedInAdapter(SourceAdapter):
     source_name = "linkedin"
+
+    @staticmethod
+    def _parse_posted_at(card) -> datetime | None:
+        time_el = card.select_one("time")
+        if not time_el:
+            return None
+
+        raw = (time_el.get("datetime") or "").strip()
+        if raw:
+            try:
+                # LinkedIn usually returns YYYY-MM-DD in public listing.
+                return datetime.fromisoformat(raw)
+            except ValueError:
+                pass
+            for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    parsed = datetime.strptime(raw, fmt)
+                    return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+                except ValueError:
+                    continue
+        return None
 
     def fetch(self):
         listing_url = "https://www.linkedin.com/jobs/search/?keywords=web3%20crypto%20blockchain"
@@ -50,6 +72,7 @@ class LinkedInAdapter(SourceAdapter):
             match = re.search(r"/jobs/view/.*-(\d+)", parsed.path)
             if match:
                 job_id = match.group(1)
+            posted_at = self._parse_posted_at(card)
 
             jobs.append(
                 NormalizedJob(
@@ -61,6 +84,7 @@ class LinkedInAdapter(SourceAdapter):
                     remote_type="unknown",
                     employment_type="unknown",
                     description="",
+                    posted_at=posted_at,
                     raw_payload={"site": "linkedin", "company_url": company_url},
                 )
             )

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
 
 from sqlalchemy import desc, func
@@ -200,6 +200,24 @@ def _clean_role_title(title: str) -> str:
     return " ".join(text.split())[:80]
 
 
+def _to_utc_naive(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _is_recent_posted(posted_at: datetime | None, now_utc: datetime) -> bool:
+    normalized = _to_utc_naive(posted_at)
+    if normalized is None:
+        return False
+    # Keep a tiny future tolerance for source/server clock skew.
+    if normalized > now_utc + timedelta(minutes=5):
+        return False
+    return normalized >= now_utc - timedelta(days=1)
+
+
 def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_utc: datetime) -> list[dict]:
     summaries: list[dict] = []
     for stat in company_stats.values():
@@ -279,7 +297,7 @@ def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_ut
         for item in top_roles:
             posted_at = item.get("posted_at")
             if isinstance(posted_at, datetime):
-                posted_text = posted_at.strftime("%Y-%m-%d")
+                posted_text = posted_at.strftime("%Y-%m-%d %H:%M UTC")
             else:
                 posted_text = "N/A"
             role_briefs.append(
@@ -292,6 +310,10 @@ def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_ut
                     "posted_at": posted_text,
                 }
             )
+        job_titles = [item["title"] for item in top_roles if item.get("title")]
+        if not job_titles:
+            job_titles = [role.get("title", "") for role in dedup_role_map.values() if role.get("title")]
+        job_titles = [x for x in job_titles if x][:3]
 
         clues = stat["contact_clues"]
         emails = sorted(clues["emails"])
@@ -319,6 +341,7 @@ def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_ut
                 "main_source": main_source,
                 "main_source_website": stat["source_websites"].get(main_source, ""),
                 "top_roles": role_briefs,
+                "job_titles": job_titles,
                 "contact_clues": contact_clues,
             }
         )
@@ -363,6 +386,10 @@ def run_crawl(db: Session) -> dict:
             fetched_count = len(jobs)
 
             for normalized in jobs:
+                normalized_posted_at = _to_utc_naive(normalized.posted_at)
+                if not _is_recent_posted(normalized_posted_at, now_utc):
+                    continue
+
                 fallback_hash = None
                 if not normalized.source_job_id:
                     fallback_hash = job_fallback_hash(normalized.canonical_url, normalized.title, normalized.company)
@@ -398,7 +425,7 @@ def run_crawl(db: Session) -> dict:
                     remote_type=normalized.remote_type,
                     employment_type=normalized.employment_type,
                     description=normalized.description,
-                    posted_at=normalized.posted_at,
+                    posted_at=normalized_posted_at,
                     collected_at=datetime.utcnow(),
                     raw_payload=normalized.raw_payload,
                     is_new=True,
@@ -468,7 +495,7 @@ def run_crawl(db: Session) -> dict:
                             "url": record.canonical_url,
                             "location": record.location,
                             "employment_type": record.employment_type,
-                            "posted_at": record.posted_at or record.collected_at,
+                            "posted_at": record.posted_at,
                         }
                     )
 
@@ -490,7 +517,7 @@ def run_crawl(db: Session) -> dict:
                             "url": record.canonical_url,
                             "location": record.location or "N/A",
                             "employment_type": record.employment_type or "N/A",
-                            "posted_at": (record.posted_at or record.collected_at).strftime("%Y-%m-%d"),
+                            "posted_at": record.posted_at.strftime("%Y-%m-%d %H:%M UTC"),
                         }
                     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from html import unescape
 from typing import Any
 
@@ -104,6 +105,10 @@ def _build_jobs_from_blocks(blocks: dict[str, Any], collection_id: str, schema: 
             named_props.get("投递", "").strip(),
         ]
         description = "\n".join([p for p in description_parts if p])[:4000]
+        created_ms = value.get("created_time")
+        posted_at = None
+        if isinstance(created_ms, (int, float)) and created_ms > 0:
+            posted_at = datetime.fromtimestamp(created_ms / 1000, tz=timezone.utc).replace(tzinfo=None)
 
         jobs.append(
             NormalizedJob(
@@ -115,6 +120,7 @@ def _build_jobs_from_blocks(blocks: dict[str, Any], collection_id: str, schema: 
                 remote_type=remote_type,
                 employment_type="unknown",
                 description=description,
+                posted_at=posted_at,
                 raw_payload={
                     "site": "abetterweb3",
                     "company_url": company_url,

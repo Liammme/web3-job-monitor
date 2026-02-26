@@ -5,6 +5,8 @@ import httpx
 
 
 class DiscordNotifier:
+    MAX_DETAILED_COMPANIES = 20
+
     def __init__(self, webhook_url: str):
         self.webhook_url = webhook_url
 
@@ -81,6 +83,7 @@ class DiscordNotifier:
 
         overview_lines = [
             "Web3 招聘监控汇总",
+            "时间窗口: 仅统计最近24小时内发布岗位",
             f"新增岗位: {summary.get('new_jobs', 0)}",
             f"高优先岗位: {summary.get('high_priority_jobs', 0)}",
             f"失败来源: {failed_sources}",
@@ -93,7 +96,10 @@ class DiscordNotifier:
         if not companies:
             payloads.append({"content": "最近有招聘需求的公司：暂无新增公司"})
         else:
-            for idx, item in enumerate(companies, start=1):
+            detailed_companies = companies[: cls.MAX_DETAILED_COMPANIES]
+            overflow_companies = companies[cls.MAX_DETAILED_COMPANIES :]
+
+            for idx, item in enumerate(detailed_companies, start=1):
                 company_lines = [
                     f"公司 {idx}: {item['company']}",
                     f"招聘状态: {item['hiring_status']}",
@@ -124,16 +130,18 @@ class DiscordNotifier:
                 for chunk in cls._split_lines(company_lines):
                     payloads.append({"content": chunk})
 
-        high_jobs = summary.get("high_jobs", [])
-        if high_jobs:
-            detail_lines = ["高优先岗位明细（按评分排序）:"]
-            for item in high_jobs:
-                detail_lines.append(
-                    f"- {item['company']} | {item['title']} | 评分 {item['score']} | 发布时间 {item.get('posted_at', 'N/A')} | {item.get('location', 'N/A')} | {item.get('employment_type', 'N/A')} | 来源 {item['source']}"
-                )
-                detail_lines.append(f"  岗位链接: {item['url']}")
-            for chunk in cls._split_lines(detail_lines):
-                payloads.append({"content": chunk})
+            if overflow_companies:
+                overflow_lines = [
+                    f"其余公司（仅公司+岗位名，共 {len(overflow_companies)} 家）:",
+                ]
+                for item in overflow_companies:
+                    titles = [x for x in (item.get("job_titles") or []) if isinstance(x, str) and x.strip()]
+                    if not titles:
+                        titles = [role.get("title") for role in (item.get("top_roles") or []) if role.get("title")]
+                    title_text = " / ".join(titles[:3]) if titles else "N/A"
+                    overflow_lines.append(f"- {item['company']} | {title_text}")
+                for chunk in cls._split_lines(overflow_lines):
+                    payloads.append({"content": chunk})
 
         return payloads
 

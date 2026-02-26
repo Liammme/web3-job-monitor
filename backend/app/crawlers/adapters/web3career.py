@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
 from html import unescape
@@ -12,6 +13,21 @@ from app.crawlers.base import SourceAdapter
 
 class Web3CareerAdapter(SourceAdapter):
     source_name = "web3career"
+
+    @staticmethod
+    def _parse_posted_at(date_posted: str) -> datetime | None:
+        raw = (date_posted or "").strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%d %H:%M:%S %z", "%Y-%m-%d"):
+            try:
+                parsed = datetime.strptime(raw, fmt)
+                if parsed.tzinfo:
+                    return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                return parsed
+            except ValueError:
+                continue
+        return None
 
     def fetch(self):
         listing_url = "https://web3.career/"
@@ -45,6 +61,7 @@ class Web3CareerAdapter(SourceAdapter):
                     company_url = str(org.get("url") or org.get("sameAs") or "").strip()
 
                 date_posted = str(item.get("datePosted") or "").strip()
+                posted_at = self._parse_posted_at(date_posted)
                 source_job_id = hashlib.sha1(f"{title}|{company}|{date_posted}".encode("utf-8")).hexdigest()
 
                 location = ""
@@ -77,6 +94,7 @@ class Web3CareerAdapter(SourceAdapter):
                         remote_type=remote_type,
                         employment_type=employment_type,
                         description=unescape(str(item.get("description") or "")).strip()[:4000],
+                        posted_at=posted_at,
                         raw_payload={"site": "web3career", "company_url": company_url, "date_posted": date_posted},
                     )
                 )

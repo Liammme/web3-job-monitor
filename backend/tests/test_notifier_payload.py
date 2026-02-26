@@ -89,6 +89,7 @@ def test_digest_payload_company_section():
                             "employment_type": "FULL_TIME",
                         },
                     ],
+                    "job_titles": ["Senior Solidity Engineer"],
                 },
                 {
                     "company": "A Corp",
@@ -110,6 +111,7 @@ def test_digest_payload_company_section():
                         "career_url": "https://a.example.com/jobs",
                     },
                     "top_roles": [],
+                    "job_titles": ["Product Manager"],
                 },
             ],
         }
@@ -125,7 +127,6 @@ def test_digest_payload_company_section():
     assert "重点岗位" in content
     assert "联系线索" in content
     assert "首次发现招聘" in content
-    assert "高优先岗位明细（按评分排序）" in content
     assert content.index("B Corp") < content.index("A Corp")
 
 
@@ -162,6 +163,7 @@ def test_digest_payload_splits_when_too_long():
                         "employment_type": "FULL_TIME",
                     }
                 ],
+                "job_titles": ["Very Long Role Name For Stress Test"],
             }
             for i in range(50)
         ],
@@ -169,3 +171,5 @@ def test_digest_payload_splits_when_too_long():
     payloads = DiscordNotifier.build_digest_payloads(summary)
     assert len(payloads) > 2
     assert all(len(item["content"]) <= 1900 for item in payloads)
+    content = "\n".join(item["content"] for item in payloads)
+    assert "其余公司（仅公司+岗位名" in content
