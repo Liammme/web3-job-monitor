@@ -538,16 +538,21 @@ def run_crawl(db: Session) -> dict:
         "high_jobs": sorted(high_job_details, key=lambda x: (-x["score"], x["company"].lower(), x["title"].lower())),
     }
 
-    # Always send one digest message per crawl run.
-    payload = notifier.build_digest_payload(digest)
-    ok, msg = notifier.send(payload)
+    # Send digest as multiple clear messages to improve readability.
+    payloads = notifier.build_digest_payloads(digest)
+    send_errors: list[str] = []
+    for payload in payloads:
+        ok, msg = notifier.send(payload)
+        if not ok:
+            send_errors.append(msg)
+
     db.add(
         Notification(
             job_id=None,
             channel="discord",
             mode="digest",
-            status="sent" if ok else "failed",
-            error="" if ok else msg,
+            status="sent" if not send_errors else "failed",
+            error="" if not send_errors else " | ".join(send_errors)[:2000],
         )
     )
     db.commit()

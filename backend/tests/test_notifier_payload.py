@@ -39,7 +39,7 @@ def test_single_payload_shape():
 
 
 def test_digest_payload_company_section():
-    payload = DiscordNotifier.build_digest_payload(
+    payloads = DiscordNotifier.build_digest_payloads(
         {
             "new_jobs": 4,
             "high_priority_jobs": 1,
@@ -115,20 +115,21 @@ def test_digest_payload_company_section():
         }
     )
 
-    assert isinstance(payload.get("content"), str)
-    content = payload.get("_file_text", payload["content"])
-    assert "最近有招聘需求的公司" in content
+    assert payloads
+    assert all(isinstance(item.get("content"), str) for item in payloads)
+    content = "\n".join(item["content"] for item in payloads)
+    assert "Web3 招聘监控汇总" in content
     assert "公司网址" in content
-    assert "来源网站（主要）" in content
+    assert "主要来源" in content
     assert "联系优先级" in content
     assert "重点岗位" in content
     assert "联系线索" in content
     assert "首次发现招聘" in content
-    assert "高优先岗位明细（本轮）" in content
+    assert "高优先岗位明细（按评分排序）" in content
     assert content.index("B Corp") < content.index("A Corp")
 
 
-def test_digest_payload_attaches_file_when_too_long():
+def test_digest_payload_splits_when_too_long():
     summary = {
         "new_jobs": 1,
         "high_priority_jobs": 0,
@@ -165,6 +166,6 @@ def test_digest_payload_attaches_file_when_too_long():
             for i in range(50)
         ],
     }
-    payload = DiscordNotifier.build_digest_payload(summary)
-    assert "_file_text" in payload
-    assert payload["_file_name"] == "web3_digest.txt"
+    payloads = DiscordNotifier.build_digest_payloads(summary)
+    assert len(payloads) > 2
+    assert all(len(item["content"]) <= 1900 for item in payloads)

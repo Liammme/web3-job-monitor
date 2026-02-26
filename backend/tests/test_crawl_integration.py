@@ -53,8 +53,8 @@ class FakeNotifier:
     def build_single_payload(self, *args, **kwargs):
         return {"mode": "single"}
 
-    def build_digest_payload(self, summary):
-        return {"mode": "digest", "summary": summary}
+    def build_digest_payloads(self, summary):
+        return [{"mode": "digest", "summary": summary}]
 
     def send(self, payload):
         self.sent.append(payload)
