@@ -2,7 +2,7 @@
 
 ## Features
 - 5 sources: LinkedIn, CryptoJobsList, Web3.career, Wellfound, Remote3
-- Crawl every 8 hours (GitHub Actions)
+- Crawl every 24 hours (GitHub Actions)
 - PostgreSQL storage with dedupe
 - High-priority scoring (`>=70`)
 - Discord single notifications + run digest
