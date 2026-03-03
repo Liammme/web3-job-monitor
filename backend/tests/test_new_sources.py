@@ -115,3 +115,25 @@ def test_seed_adds_new_sources_and_disables_remote3(monkeypatch):
     assert "workatstartup_ai" in src
     assert src["remote3"].enabled is False
     db.close()
+
+
+def test_seed_keeps_existing_source_enabled_state(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    monkeypatch.setattr(seed, "SessionLocal", TestingSession)
+
+    db = TestingSession()
+    db.add(Source(name="linkedin", base_url="https://old.example.com", enabled=False, crawl_config={}))
+    db.commit()
+    db.close()
+
+    seed.seed_sources_if_empty()
+
+    db = TestingSession()
+    linkedin = db.query(Source).filter(Source.name == "linkedin").first()
+    assert linkedin is not None
+    assert linkedin.enabled is False
+    assert linkedin.base_url == "https://www.linkedin.com/jobs"
+    db.close()

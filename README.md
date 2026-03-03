@@ -1,11 +1,11 @@
 # Web3 Job Monitor (Personal Dashboard)
 
 ## Features
-- 5 sources: LinkedIn, CryptoJobsList, Web3.career, Wellfound, Remote3
+- Sources: LinkedIn, CryptoJobsList, CryptocurrencyJobs, Web3.career, Web3Jobs.ai, Wellfound, DeJob, ABetterWeb3, AIJobs, WorkAtAStartup(AI)
 - Crawl every 24 hours (GitHub Actions)
 - PostgreSQL storage with dedupe
 - High-priority scoring (`>=70`)
-- Discord single notifications + run digest
+- Discord digest push + `[END_OF_PUSH]` end marker
 - FastAPI backend + Next.js frontend
 
 ## Quick start (Docker)

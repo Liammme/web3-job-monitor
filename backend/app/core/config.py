@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24
 
+    cors_origins: str = "*"
+    cors_allow_credentials: bool = False
+
     discord_webhook_url: str = ""
     discord_bot_token: str = ""
     discord_channel_id: str = ""

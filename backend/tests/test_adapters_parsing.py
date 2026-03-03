@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import html
+import json
 
 from bs4 import BeautifulSoup
 
@@ -225,3 +227,59 @@ def test_workatstartup_ai_adapter_extracts_listing(monkeypatch):
     assert jobs[0].location == "Seattle, WA"
     assert jobs[0].source_job_id == "30657"
     assert isinstance(jobs[0].posted_at, datetime)
+
+
+def test_workatstartup_ai_adapter_prefers_detail_jd(monkeypatch):
+    listing_html = """
+    <div class='jobs-list'>
+      <div>
+        <div>
+          <a href='https://www.workatastartup.com/companies/ai-labs' target='company'></a>
+          <div class='company-details text-lg'>
+            <a href='https://www.workatastartup.com/companies/ai-labs' target='company'>
+              <span class='font-bold'>AI Labs</span>
+              <span class='text-gray-300'>(about 2 hours ago)</span>
+            </a>
+          </div>
+          <div class='job-name'>
+            <a data-jobid='9988' href='https://www.ycombinator.com/companies/ai-labs/jobs/abc-ai-platform-engineer' target='job'>
+              Platform Engineer
+            </a>
+          </div>
+          <p class='job-details'>
+            <span>fulltime</span>
+            <span>Remote</span>
+          </p>
+        </div>
+      </div>
+    </div>
+    """
+    data_page = {
+        "props": {
+            "job": {
+                "companyName": "AI Labs",
+                "companyUrl": "/companies/ai-labs",
+                "description": "<p>Build large language model services and retrieval augmented generation pipelines.</p>",
+            },
+            "company": {"website": "https://ai-labs.example.com"},
+        }
+    }
+    detail_html = (
+        "<div id='WaasShowJobPage-react-component-x' "
+        f"data-page='{html.escape(json.dumps(data_page), quote=True)}'></div>"
+    )
+
+    def _fake_fetch(url: str, *_args, **_kwargs):
+        if "jobs?query=ai" in url:
+            return listing_html
+        return detail_html
+
+    monkeypatch.setattr(workatstartup_ai, "fetch_html", _fake_fetch)
+    monkeypatch.setattr(workatstartup_ai, "soup_links", _soup_links_from_html)
+
+    jobs = workatstartup_ai.WorkAtStartupAIAdapter().fetch()
+
+    assert len(jobs) == 1
+    assert jobs[0].company == "AI Labs"
+    assert jobs[0].raw_payload["company_url"] == "https://ai-labs.example.com"
+    assert "large language model" in jobs[0].description.lower()

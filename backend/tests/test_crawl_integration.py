@@ -80,6 +80,36 @@ class NonProdAdapter:
         ]
 
 
+class AIJdHitAdapter:
+    def fetch(self):
+        now = datetime.utcnow()
+        return [
+            NormalizedJob(
+                source_job_id="ai-1",
+                canonical_url="https://example.com/jobs/ai-1",
+                title="Software Engineer",
+                company="AILab",
+                description="Build large language model inference and retrieval augmented generation pipelines.",
+                posted_at=now - timedelta(hours=2),
+            )
+        ]
+
+
+class AINonDomainAdapter:
+    def fetch(self):
+        now = datetime.utcnow()
+        return [
+            NormalizedJob(
+                source_job_id="ai-2",
+                canonical_url="https://example.com/jobs/ai-2",
+                title="Software Engineer",
+                company="OpsCloud",
+                description="Build billing APIs and onboarding flow for B2B SaaS.",
+                posted_at=now - timedelta(hours=2),
+            )
+        ]
+
+
 class FakeNotifier:
     def __init__(self, *_args, **_kwargs):
         self.sent = []
@@ -92,6 +122,24 @@ class FakeNotifier:
 
     def send(self, payload):
         self.sent.append(payload)
+        return True, "ok"
+
+
+class QuietProbeNotifier(FakeNotifier):
+    send_calls = 0
+
+    def send(self, payload):
+        QuietProbeNotifier.send_calls += 1
+        return super().send(payload)
+
+
+class FlakyDigestNotifier(FakeNotifier):
+    send_calls = 0
+
+    def send(self, payload):
+        FlakyDigestNotifier.send_calls += 1
+        if FlakyDigestNotifier.send_calls == 1:
+            return False, "digest failed"
         return True, "ok"
 
 
@@ -218,3 +266,103 @@ def test_run_crawl_filters_non_prod_research_jobs(monkeypatch):
     assert result["new_jobs"] == 0
     assert result["selected_jobs_count"] == 0
     assert db.query(Job).count() == 0
+
+
+def test_run_crawl_ai_source_requires_ai_keywords_in_jd(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="aijobsnet", base_url="https://aijobs.net", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    db.add(Setting(key="notifications", value=default_notification_config()))
+    db.commit()
+
+    monkeypatch.setitem(crawl_service.ADAPTERS, "aijobsnet", AINonDomainAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
+
+    result = run_crawl(db)
+
+    assert result["new_jobs"] == 0
+    assert result["selected_jobs_count"] == 0
+    assert db.query(Job).count() == 0
+
+
+def test_run_crawl_ai_source_accepts_ai_keywords_from_jd(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="aijobsnet", base_url="https://aijobs.net", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    db.add(Setting(key="notifications", value=default_notification_config()))
+    db.commit()
+
+    monkeypatch.setitem(crawl_service.ADAPTERS, "aijobsnet", AIJdHitAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
+
+    result = run_crawl(db)
+
+    assert result["new_jobs"] == 1
+    assert result["selected_jobs_count"] == 1
+    assert db.query(Job).count() == 1
+
+
+def test_run_crawl_respects_quiet_hours_and_marks_skipped(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    cfg = default_notification_config()
+    now_hour = datetime.utcnow().hour
+    cfg["quiet_hours_start_utc"] = now_hour
+    cfg["quiet_hours_end_utc"] = (now_hour + 1) % 24
+    db.add(Setting(key="notifications", value=cfg))
+    db.commit()
+
+    QuietProbeNotifier.send_calls = 0
+    monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", FakeAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", QuietProbeNotifier)
+
+    run_crawl(db)
+
+    assert QuietProbeNotifier.send_calls == 0
+    digest_rows = db.query(Notification).filter(Notification.mode == "digest").all()
+    assert len(digest_rows) == 1
+    assert digest_rows[0].status == "skipped"
+    item_rows = db.query(Notification).filter(Notification.mode == "job_digest_item").all()
+    assert item_rows
+    assert all(row.status == "skipped" for row in item_rows)
+    end_rows = db.query(Notification).filter(Notification.mode == "end_of_push").all()
+    assert len(end_rows) == 1
+    assert end_rows[0].status == "skipped"
+
+
+def test_run_crawl_sends_end_marker_even_if_digest_fails(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    db.add(Setting(key="notifications", value=default_notification_config()))
+    db.commit()
+
+    FlakyDigestNotifier.send_calls = 0
+    monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", FakeAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FlakyDigestNotifier)
+
+    run_crawl(db)
+
+    digest_rows = db.query(Notification).filter(Notification.mode == "digest").all()
+    assert len(digest_rows) == 1
+    assert digest_rows[0].status == "failed"
+    end_rows = db.query(Notification).filter(Notification.mode == "end_of_push").all()
+    assert len(end_rows) == 1
+    assert end_rows[0].status == "sent"

@@ -20,6 +20,23 @@ def default_score_config() -> dict:
             "zk": 12,
             "rust": 12,
             "evm": 12,
+            "large language model": 10,
+            "llm": 10,
+            "generative ai": 10,
+            "retrieval augmented generation": 10,
+            "rag": 10,
+            "foundation model": 10,
+            "prompt engineering": 10,
+            "fine-tuning": 10,
+            "ai agent": 10,
+            "multimodal": 10,
+            "machine learning": 10,
+            "deep learning": 10,
+            "大模型": 10,
+            "智能体": 10,
+            "多模态": 10,
+            "提示工程": 10,
+            "生成式ai": 10,
         },
         "medium_keywords": {
             "web3": 6,
@@ -27,6 +44,25 @@ def default_score_config() -> dict:
             "blockchain": 6,
             "wallet": 6,
             "node": 6,
+            "ai": 6,
+            "artificial intelligence": 6,
+            "ml": 6,
+            "nlp": 6,
+            "computer vision": 6,
+            "embedding": 6,
+            "inference": 6,
+            "openai": 6,
+            "anthropic": 6,
+            "claude": 6,
+            "gpt": 6,
+            "人工智能": 6,
+            "机器学习": 6,
+            "深度学习": 6,
+            "自然语言处理": 6,
+            "检索增强": 6,
+            "微调": 6,
+            "提示词": 6,
+            "生成式 ai": 6,
         },
         "strong_cap": 60,
         "medium_cap": 30,
@@ -80,7 +116,7 @@ def seed_sources_if_empty() -> None:
                 db.add(Source(name=name, base_url=base_url, enabled=enabled, crawl_config={}))
             else:
                 row.base_url = base_url
-                row.enabled = enabled
+                # Keep user-managed enable/disable state from dashboard.
                 db.add(row)
 
         # Deprecated source: keep history but disable future crawling.

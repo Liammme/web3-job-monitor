@@ -1,7 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from copy import deepcopy
+import re
 
 from app.crawlers.base import NormalizedJob
+from app.services.seed import default_score_config
 
 
 @dataclass
@@ -17,7 +20,7 @@ class ScoreResult:
 
 class Scorer:
     def __init__(self, cfg: dict):
-        self.cfg = cfg
+        self.cfg = self._merge_with_defaults(cfg)
 
     def score(self, job: NormalizedJob | dict) -> ScoreResult:
         if isinstance(job, dict):
@@ -64,7 +67,45 @@ class Scorer:
         score = 0
         hits: list[str] = []
         for key, val in weights.items():
-            if key in text:
+            if Scorer._contains_keyword(text, key):
                 score += val
                 hits.append(key)
         return min(score, cap), hits
+
+    @staticmethod
+    def _contains_keyword(text: str, keyword: str) -> bool:
+        if not keyword:
+            return False
+        if any(ord(ch) > 127 for ch in keyword):
+            return keyword in text
+        pattern = rf"\b{re.escape(keyword)}\b"
+        return re.search(pattern, text) is not None
+
+    @staticmethod
+    def _merge_with_defaults(cfg: dict) -> dict:
+        merged = deepcopy(default_score_config())
+        provided = cfg if isinstance(cfg, dict) else {}
+
+        for key, value in provided.items():
+            if key not in merged:
+                merged[key] = value
+                continue
+
+            if isinstance(merged[key], dict) and isinstance(value, dict):
+                merged[key].update(value)
+                continue
+
+            if isinstance(merged[key], list) and isinstance(value, list):
+                seen = set()
+                combined = []
+                for item in merged[key] + value:
+                    if item in seen:
+                        continue
+                    seen.add(item)
+                    combined.append(item)
+                merged[key] = combined
+                continue
+
+            merged[key] = value
+
+        return merged

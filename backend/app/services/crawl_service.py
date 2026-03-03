@@ -230,6 +230,92 @@ def _keyword_hit(text: str, keyword: str) -> bool:
     return re.search(pattern, text) is not None
 
 
+AI_FILTER_SOURCES = {"aijobsnet", "workatstartup_ai"}
+AI_DOMAIN_KEYWORDS = (
+    "ai",
+    "artificial intelligence",
+    "machine learning",
+    "ml",
+    "deep learning",
+    "neural network",
+    "large language model",
+    "large-language model",
+    "llm",
+    "foundation model",
+    "generative ai",
+    "genai",
+    "prompt engineering",
+    "prompt engineer",
+    "retrieval augmented generation",
+    "retrieval-augmented generation",
+    "rag",
+    "embedding",
+    "embeddings",
+    "fine tuning",
+    "fine-tuning",
+    "instruction tuning",
+    "model serving",
+    "inference",
+    "agentic",
+    "ai agent",
+    "ai agents",
+    "multi-agent",
+    "multimodal",
+    "transformer",
+    "nlp",
+    "natural language processing",
+    "computer vision",
+    "speech recognition",
+    "asr",
+    "text to speech",
+    "text-to-speech",
+    "tts",
+    "diffusion model",
+    "rlhf",
+    "mcp",
+    "gpt",
+    "openai",
+    "anthropic",
+    "claude",
+    "人工智能",
+    "机器学习",
+    "深度学习",
+    "神经网络",
+    "大模型",
+    "语言模型",
+    "生成式ai",
+    "生成式 ai",
+    "检索增强",
+    "提示词",
+    "提示工程",
+    "微调",
+    "推理",
+    "多模态",
+    "智能体",
+    "计算机视觉",
+    "自然语言处理",
+    "语音识别",
+)
+
+
+def _is_ai_domain_job(source_name: str, title: str, description: str) -> bool:
+    source = (source_name or "").lower()
+    if source not in AI_FILTER_SOURCES:
+        return True
+
+    desc_text = (description or "").lower()
+    title_text = (title or "").lower()
+
+    desc_hit = any(_keyword_hit(desc_text, keyword) for keyword in AI_DOMAIN_KEYWORDS)
+    if desc_hit:
+        return True
+
+    # Prefer JD-based filtering. Use title only as fallback when JD is missing/too short.
+    if len(desc_text.strip()) >= 80:
+        return False
+    return any(_keyword_hit(title_text, keyword) for keyword in AI_DOMAIN_KEYWORDS)
+
+
 def _is_prod_research_job(title: str, description: str) -> bool:
     text = " ".join([(title or ""), (description or "")]).lower()
 
@@ -501,6 +587,8 @@ def run_crawl(db: Session) -> dict:
                 normalized_posted_at = _to_utc_naive(normalized.posted_at)
                 if not _is_recent_posted(normalized_posted_at, now_utc):
                     continue
+                if not _is_ai_domain_job(source.name, normalized.title, normalized.description):
+                    continue
                 if not _is_prod_research_job(normalized.title, normalized.description):
                     continue
 
@@ -751,30 +839,47 @@ def run_crawl(db: Session) -> dict:
         }
     )
 
-    # Send digest as multiple clear messages to improve readability.
-    payloads = notifier.build_digest_payloads(digest)
     send_errors: list[str] = []
-    for payload in payloads:
-        ok, msg = notifier.send(payload)
-        if not ok:
-            send_errors.append(msg)
+    send_success_count = 0
+    digest_status = "skipped" if quiet_hours else "failed"
+    digest_error = "quiet hours" if quiet_hours else ""
+
+    if not quiet_hours:
+        # Send digest as multiple clear messages to improve readability.
+        payloads = notifier.build_digest_payloads(digest)
+        for payload in payloads:
+            ok, msg = notifier.send(payload)
+            if ok:
+                send_success_count += 1
+            else:
+                send_errors.append(msg)
+
+        if send_success_count > 0:
+            digest_status = "sent"
+            digest_error = "" if not send_errors else " | ".join(send_errors)[:2000]
+        else:
+            digest_status = "failed"
+            digest_error = "" if not send_errors else " | ".join(send_errors)[:2000]
 
     end_push_sent = False
     end_push_status = "skipped"
-    end_push_error = ""
-    if not send_errors:
+    end_push_error = "quiet hours" if quiet_hours else ""
+    if not quiet_hours:
         end_ok, end_msg = notifier.send({"content": "[END_OF_PUSH] 今日岗位推送结束，请 <@1473632297671725096> 生成今日报告"})
         end_push_sent = end_ok
         end_push_status = "sent" if end_ok else "failed"
         end_push_error = "" if end_ok else end_msg
+
+    job_item_status = "skipped" if quiet_hours else ("sent" if send_success_count > 0 else "failed")
+    job_item_error = "quiet hours" if quiet_hours else ("" if send_success_count > 0 else "digest send failed")
 
     db.add(
         Notification(
             job_id=None,
             channel="discord",
             mode="digest",
-            status="sent" if not send_errors else "failed",
-            error="" if not send_errors else " | ".join(send_errors)[:2000],
+            status=digest_status,
+            error=digest_error,
         )
     )
     for item in selected_jobs:
@@ -783,17 +888,17 @@ def run_crawl(db: Session) -> dict:
                 job_id=item["job_id"],
                 channel="discord",
                 mode="job_digest_item",
-                status="sent" if not send_errors else "failed",
-                error="" if not send_errors else "digest send failed",
+                status=job_item_status,
+                error=job_item_error,
             )
         )
-    if end_push_status in {"sent", "failed"}:
+    if end_push_status in {"sent", "failed", "skipped"}:
         db.add(
             Notification(
                 job_id=None,
                 channel="discord",
                 mode="end_of_push",
-                status="sent" if end_push_sent else "failed",
+                status=end_push_status,
                 error=end_push_error[:2000],
             )
         )

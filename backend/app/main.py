@@ -8,10 +8,15 @@ from app.db.init_db import init_db
 
 app = FastAPI(title=settings.app_name)
 
+origins = [item.strip() for item in settings.cors_origins.split(",") if item.strip()]
+if not origins:
+    origins = ["*"]
+allow_credentials = settings.cors_allow_credentials and "*" not in origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
