@@ -65,6 +65,21 @@ class OldOnlyAdapter:
         ]
 
 
+class NonProdAdapter:
+    def fetch(self):
+        now = datetime.utcnow()
+        return [
+            NormalizedJob(
+                source_job_id="np-1",
+                canonical_url="https://example.com/jobs/np-1",
+                title="Marketing Specialist",
+                company="Delta",
+                description="growth marketing campaign and sales support",
+                posted_at=now - timedelta(hours=2),
+            )
+        ]
+
+
 class FakeNotifier:
     def __init__(self, *_args, **_kwargs):
         self.sent = []
@@ -182,3 +197,24 @@ def test_run_crawl_sends_end_of_push_every_run(monkeypatch):
 
     end_rows = db.query(Notification).filter(Notification.mode == "end_of_push").all()
     assert len(end_rows) == 2
+
+
+def test_run_crawl_filters_non_prod_research_jobs(monkeypatch):
+    engine = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    TestingSession = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSession()
+    db.add(Source(name="web3career", base_url="https://web3.career", enabled=True, crawl_config={}))
+    db.add(Setting(key="scoring", value=default_score_config()))
+    db.add(Setting(key="notifications", value=default_notification_config()))
+    db.commit()
+
+    monkeypatch.setitem(crawl_service.ADAPTERS, "web3career", NonProdAdapter)
+    monkeypatch.setattr(crawl_service, "DiscordNotifier", FakeNotifier)
+
+    result = run_crawl(db)
+
+    assert result["new_jobs"] == 0
+    assert result["selected_jobs_count"] == 0
+    assert db.query(Job).count() == 0

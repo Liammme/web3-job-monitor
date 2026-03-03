@@ -62,9 +62,11 @@ def seed_sources_if_empty() -> None:
     db = SessionLocal()
     try:
         desired_sources = [
+            ("aijobsnet", "https://aijobs.net", True),
             ("linkedin", "https://www.linkedin.com/jobs", True),
             ("cryptojobslist", "https://cryptojobslist.com", True),
             ("cryptocurrencyjobs", "https://www.cryptocurrencyjobs.co", True),
+            ("workatstartup_ai", "https://www.workatastartup.com/jobs?query=ai", True),
             ("web3career", "https://web3.career", True),
             ("web3jobsai", "https://web3jobs.ai/jobs", True),
             ("wellfound", "https://wellfound.com", True),

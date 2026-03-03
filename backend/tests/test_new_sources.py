@@ -86,6 +86,8 @@ def test_registry_uses_new_sources_and_removes_remote3():
     assert "abetterweb3" in ADAPTERS
     assert "web3jobsai" in ADAPTERS
     assert "cryptocurrencyjobs" in ADAPTERS
+    assert "aijobsnet" in ADAPTERS
+    assert "workatstartup_ai" in ADAPTERS
     assert "remote3" not in ADAPTERS
 
 
@@ -109,5 +111,7 @@ def test_seed_adds_new_sources_and_disables_remote3(monkeypatch):
     assert "abetterweb3" in src
     assert "web3jobsai" in src
     assert "cryptocurrencyjobs" in src
+    assert "aijobsnet" in src
+    assert "workatstartup_ai" in src
     assert src["remote3"].enabled is False
     db.close()

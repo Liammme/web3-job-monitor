@@ -4,7 +4,16 @@ from datetime import datetime
 
 from bs4 import BeautifulSoup
 
-from app.crawlers.adapters import cryptojobslist, cryptocurrencyjobs, linkedin, remote3, web3career, web3jobsai
+from app.crawlers.adapters import (
+    aijobsnet,
+    cryptojobslist,
+    cryptocurrencyjobs,
+    linkedin,
+    remote3,
+    web3career,
+    web3jobsai,
+    workatstartup_ai,
+)
 
 
 def _soup_links_from_html(html: str):
@@ -139,4 +148,80 @@ def test_cryptocurrencyjobs_adapter_extracts_listing(monkeypatch):
     assert jobs[0].remote_type == "remote"
     assert jobs[0].employment_type == "Full-Time"
     assert jobs[0].source_job_id == "/engineering/acme-senior-solidity-engineer/"
+    assert isinstance(jobs[0].posted_at, datetime)
+
+
+def test_aijobsnet_adapter_extracts_listing(monkeypatch):
+    html = """
+    <ul id='job_list'>
+      <li class='d-flex justify-content-between position-relative pb-2'>
+        <div>
+          <div><a href='/job/backend-engineer-ai-remote-us-8829/'>Backend Engineer, AI</a></div>
+          <div><span>Python</span> | <span>LLM</span></div>
+        </div>
+        <div class='text-end'>
+          <div>
+            <span class='text-bg-warning px-1 rounded'>Senior-level</span>
+            <span class='text-bg-secondary px-1 rounded'>Full Time</span>
+          </div>
+          <div>Remote - US</div>
+          <div class='text-muted'>5h ago</div>
+        </div>
+      </li>
+    </ul>
+    """
+    monkeypatch.setattr(aijobsnet, "fetch_html", lambda *_args, **_kwargs: html)
+    monkeypatch.setattr(aijobsnet, "soup_links", _soup_links_from_html)
+
+    jobs = aijobsnet.AIJobsNetAdapter().fetch()
+
+    assert len(jobs) == 1
+    assert jobs[0].title == "Backend Engineer, AI"
+    assert jobs[0].remote_type == "remote"
+    assert jobs[0].employment_type == "Full Time"
+    assert jobs[0].source_job_id == "job/backend-engineer-ai-remote-us-8829"
+    assert isinstance(jobs[0].posted_at, datetime)
+
+
+def test_workatstartup_ai_adapter_extracts_listing(monkeypatch):
+    html = """
+    <div class='jobs-list'>
+      <div>
+        <div class='w-full bg-beige-lighter mb-2 rounded-md p-2 border border-gray-200 flex'>
+          <a href='https://www.workatastartup.com/companies/mason' target='company'></a>
+          <div class='ml-5 my-auto grow'>
+            <div class='company-details text-lg'>
+              <a href='https://www.workatastartup.com/companies/mason' target='company'>
+                <span class='font-bold'>Mason (W16)</span>
+                <span class='text-gray-300 text-sm block sm:inline ml-0 sm:ml-2 mt-1 sm:mt-0'>(about 11 hours ago)</span>
+              </a>
+            </div>
+            <div class='flex-none sm:flex mt-2 flex-wrap'>
+              <div class='job-name shrink text-blue-500'>
+                <a class='font-bold captialize mr-5' data-jobid='30657' href='https://www.ycombinator.com/companies/mason/jobs/eO4bkD3xo-full-stack-software-engineer' target='job'>
+                  Full Stack Software Engineer
+                </a>
+              </div>
+              <p class='job-details my-auto break-normal'>
+                <span class='capitalize text-sm font-thin'>fulltime</span>
+                <span class='capitalize text-sm font-thin'>Seattle, WA</span>
+                <span class='capitalize text-sm font-thin'>Full stack</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+    monkeypatch.setattr(workatstartup_ai, "fetch_html", lambda *_args, **_kwargs: html)
+    monkeypatch.setattr(workatstartup_ai, "soup_links", _soup_links_from_html)
+
+    jobs = workatstartup_ai.WorkAtStartupAIAdapter().fetch()
+
+    assert len(jobs) == 1
+    assert jobs[0].title == "Full Stack Software Engineer"
+    assert jobs[0].company == "Mason"
+    assert jobs[0].employment_type == "fulltime"
+    assert jobs[0].location == "Seattle, WA"
+    assert jobs[0].source_job_id == "30657"
     assert isinstance(jobs[0].posted_at, datetime)

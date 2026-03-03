@@ -218,6 +218,113 @@ def _is_recent_posted(posted_at: datetime | None, now_utc: datetime) -> bool:
     return normalized >= now_utc - timedelta(days=1)
 
 
+def _keyword_hit(text: str, keyword: str) -> bool:
+    if not keyword:
+        return False
+    # Chinese keywords (or other non-ascii) are matched as substring.
+    if any(ord(ch) > 127 for ch in keyword):
+        return keyword in text
+    # English keywords are matched with word boundaries to avoid false
+    # positives like "ai" matching "campaign".
+    pattern = rf"\b{re.escape(keyword)}\b"
+    return re.search(pattern, text) is not None
+
+
+def _is_prod_research_job(title: str, description: str) -> bool:
+    text = " ".join([(title or ""), (description or "")]).lower()
+
+    include_keywords = (
+        "engineer",
+        "developer",
+        "software",
+        "research",
+        "researcher",
+        "scientist",
+        "machine learning",
+        "ml",
+        "ai",
+        "data scientist",
+        "data engineer",
+        "backend",
+        "frontend",
+        "full stack",
+        "devops",
+        "sre",
+        "qa",
+        "test engineer",
+        "architect",
+        "product manager",
+        "product owner",
+        "technical product",
+        "研发",
+        "工程师",
+        "开发",
+        "算法",
+        "研究",
+        "科学家",
+        "产品经理",
+        "技术产品",
+    )
+    exclude_keywords = (
+        "sales",
+        "business development",
+        "bd",
+        "account executive",
+        "marketing",
+        "growth marketing",
+        "pr ",
+        "public relations",
+        "recruiter",
+        "recruiting",
+        "hr ",
+        "human resources",
+        "customer success",
+        "support specialist",
+        "operations manager",
+        "商务",
+        "销售",
+        "市场",
+        "公关",
+        "人力",
+        "行政",
+        "客服",
+        "法务",
+        "财务",
+    )
+    strong_rnd_keywords = (
+        "engineer",
+        "developer",
+        "scientist",
+        "research",
+        "machine learning",
+        "ai",
+        "backend",
+        "frontend",
+        "full stack",
+        "devops",
+        "sre",
+        "qa",
+        "architect",
+        "研发",
+        "工程师",
+        "开发",
+        "算法",
+        "研究",
+        "科学家",
+    )
+
+    include_hit = any(_keyword_hit(text, k) for k in include_keywords)
+    if not include_hit:
+        return False
+
+    exclude_hit = any(_keyword_hit(text, k) for k in exclude_keywords)
+    if exclude_hit:
+        strong_rnd_hit = any(_keyword_hit(text, k) for k in strong_rnd_keywords)
+        if not strong_rnd_hit:
+            return False
+    return True
+
+
 def _build_company_summaries(db: Session, company_stats: dict[str, dict], now_utc: datetime) -> list[dict]:
     summaries: list[dict] = []
     for stat in company_stats.values():
@@ -393,6 +500,8 @@ def run_crawl(db: Session) -> dict:
             for normalized in jobs:
                 normalized_posted_at = _to_utc_naive(normalized.posted_at)
                 if not _is_recent_posted(normalized_posted_at, now_utc):
+                    continue
+                if not _is_prod_research_job(normalized.title, normalized.description):
                     continue
 
                 fallback_hash = None
