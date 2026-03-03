@@ -145,16 +145,38 @@ class DiscordNotifier:
                     *[f"- {src}: {count}" for src, count in sorted(selected_source_stats.items(), key=lambda x: (-x[1], x[0]))],
                 ]
             )
+        selected_domain_stats = summary.get("selected_domain_stats") or {}
+        if selected_domain_stats:
+            overview_lines.extend(
+                [
+                    "",
+                    "本轮岗位大类分布：",
+                    f"- web3: {selected_domain_stats.get('web3', 0)}",
+                    f"- AI: {selected_domain_stats.get('AI', 0)}",
+                    f"- 亚洲岗位: {summary.get('selected_asia_count', 0)}",
+                ]
+            )
         payloads.append({"content": "\n".join(overview_lines)})
 
         selected_jobs = summary.get("selected_jobs") or []
         if selected_jobs:
-            job_lines = ["本轮岗位推送（按评分+级别排序）:"]
-            for idx, item in enumerate(selected_jobs, start=1):
-                job_lines.append(
-                    f"{idx}. {item['company']} | {item['title']} | 评分 {item['score']:.1f} | 级别分 {item.get('seniority_score', 0):.1f} | 来源 {item['source']} | 发布时间 {item.get('posted_at', 'N/A')}"
-                )
-                job_lines.append(f"   岗位链接: <{item['url']}>")
+            grouped: dict[str, list[dict]] = {"web3": [], "AI": []}
+            for item in selected_jobs:
+                domain = "AI" if str(item.get("domain") or "").upper() == "AI" else "web3"
+                grouped[domain].append(item)
+
+            job_lines = ["本轮岗位推送（按评分+级别排序，按大类）:"]
+            for domain in ("web3", "AI"):
+                jobs_in_group = grouped.get(domain) or []
+                if not jobs_in_group:
+                    continue
+                job_lines.append(f"{domain}:")
+                for idx, item in enumerate(jobs_in_group, start=1):
+                    asia_tag = " | [亚洲岗位]" if item.get("is_asia") else ""
+                    job_lines.append(
+                        f"{idx}. {item['company']} | {item['title']} | 评分 {item['score']:.1f} | 级别分 {item.get('seniority_score', 0):.1f}{asia_tag} | 来源 {item['source']} | 发布时间 {item.get('posted_at', 'N/A')}"
+                    )
+                    job_lines.append(f"   岗位链接: <{item['url']}>")
             for chunk in cls._split_lines(job_lines):
                 payloads.append({"content": chunk})
         else:

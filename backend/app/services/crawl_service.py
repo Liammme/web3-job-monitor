@@ -296,6 +296,82 @@ AI_DOMAIN_KEYWORDS = (
     "自然语言处理",
     "语音识别",
 )
+ASIA_LOCATION_KEYWORDS = (
+    "asia",
+    "apac",
+    "singapore",
+    "hong kong",
+    "tokyo",
+    "japan",
+    "korea",
+    "seoul",
+    "china",
+    "shanghai",
+    "beijing",
+    "shenzhen",
+    "hangzhou",
+    "taiwan",
+    "taipei",
+    "india",
+    "bangalore",
+    "delhi",
+    "mumbai",
+    "indonesia",
+    "jakarta",
+    "vietnam",
+    "hanoi",
+    "ho chi minh",
+    "thailand",
+    "bangkok",
+    "malaysia",
+    "kuala lumpur",
+    "philippines",
+    "manila",
+    "uae",
+    "dubai",
+    "abu dhabi",
+    "saudi",
+    "riyadh",
+    "亚洲",
+    "亚太",
+    "新加坡",
+    "香港",
+    "东京",
+    "日本",
+    "韩国",
+    "首尔",
+    "中国",
+    "上海",
+    "北京",
+    "深圳",
+    "杭州",
+    "台湾",
+    "台北",
+    "印度",
+    "班加罗尔",
+    "德里",
+    "孟买",
+    "印尼",
+    "雅加达",
+    "越南",
+    "河内",
+    "胡志明",
+    "泰国",
+    "曼谷",
+    "马来西亚",
+    "吉隆坡",
+    "菲律宾",
+    "马尼拉",
+    "迪拜",
+    "阿联酋",
+    "沙特",
+    "利雅得",
+)
+
+
+def _has_ai_signal(text: str) -> bool:
+    normalized = (text or "").lower()
+    return any(_keyword_hit(normalized, keyword) for keyword in AI_DOMAIN_KEYWORDS)
 
 
 def _is_ai_domain_job(source_name: str, title: str, description: str) -> bool:
@@ -306,14 +382,29 @@ def _is_ai_domain_job(source_name: str, title: str, description: str) -> bool:
     desc_text = (description or "").lower()
     title_text = (title or "").lower()
 
-    desc_hit = any(_keyword_hit(desc_text, keyword) for keyword in AI_DOMAIN_KEYWORDS)
+    desc_hit = _has_ai_signal(desc_text)
     if desc_hit:
         return True
 
     # Prefer JD-based filtering. Use title only as fallback when JD is missing/too short.
     if len(desc_text.strip()) >= 80:
         return False
-    return any(_keyword_hit(title_text, keyword) for keyword in AI_DOMAIN_KEYWORDS)
+    return _has_ai_signal(title_text)
+
+
+def _classify_job_domain(source_name: str, title: str, description: str) -> str:
+    source = (source_name or "").lower()
+    if source in AI_FILTER_SOURCES:
+        return "AI"
+    text = " ".join([(title or ""), (description or "")]).lower()
+    if _has_ai_signal(text):
+        return "AI"
+    return "web3"
+
+
+def _is_asia_job(location: str, title: str, description: str) -> bool:
+    text = " ".join([(location or ""), (title or ""), (description or "")[:1000]]).lower()
+    return any(_keyword_hit(text, keyword) for keyword in ASIA_LOCATION_KEYWORDS)
 
 
 def _is_prod_research_job(title: str, description: str) -> bool:
@@ -643,6 +734,8 @@ def run_crawl(db: Session) -> dict:
                 new_count += 1
                 total_new += 1
 
+                domain = _classify_job_domain(source.name, record.title, record.description)
+                is_asia = _is_asia_job(record.location, record.title, record.description)
                 score_result = scorer.score(
                     {
                         "title": record.title,
@@ -673,6 +766,8 @@ def run_crawl(db: Session) -> dict:
                         "score": float(score_result.total_score),
                         "seniority_score": float(score_result.seniority_score),
                         "senior_signal": 1 if _contains_senior_signal(record.title) else 0,
+                        "is_asia": 1 if is_asia else 0,
+                        "domain": domain,
                         "source": source.name,
                         "source_website": source.base_url,
                         "url": record.canonical_url,
@@ -808,6 +903,7 @@ def run_crawl(db: Session) -> dict:
         all_new_job_details,
         key=lambda x: (
             -x["score"],
+            -x["is_asia"],
             -x["seniority_score"],
             -x["senior_signal"],
             -x["posted_at_dt"].timestamp(),
@@ -819,8 +915,14 @@ def run_crawl(db: Session) -> dict:
     deferred_jobs = ranked_jobs[remaining_quota:]
 
     selected_source_stats: dict[str, int] = {}
+    selected_domain_stats: dict[str, int] = {"web3": 0, "AI": 0}
+    selected_asia_count = 0
     for item in selected_jobs:
         selected_source_stats[item["source"]] = selected_source_stats.get(item["source"], 0) + 1
+        domain = "AI" if str(item.get("domain") or "").upper() == "AI" else "web3"
+        selected_domain_stats[domain] = selected_domain_stats.get(domain, 0) + 1
+        if item.get("is_asia"):
+            selected_asia_count += 1
 
     digest.update(
         {
@@ -834,6 +936,8 @@ def run_crawl(db: Session) -> dict:
             ],
             "selected_jobs_count": len(selected_jobs),
             "selected_source_stats": selected_source_stats,
+            "selected_domain_stats": selected_domain_stats,
+            "selected_asia_count": selected_asia_count,
             "deferred_jobs_count": len(deferred_jobs),
             "deferred_jobs": [{"company": x["company"], "title": x["title"]} for x in deferred_jobs[:200]],
         }

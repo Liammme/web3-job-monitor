@@ -231,6 +231,8 @@ def test_digest_payload_uses_selected_jobs_section_when_present():
             "selected_jobs_count": 2,
             "deferred_jobs_count": 1,
             "selected_source_stats": {"web3career": 1, "dejob": 1},
+            "selected_domain_stats": {"web3": 1, "AI": 1},
+            "selected_asia_count": 1,
             "selected_jobs": [
                 {
                     "job_id": 1,
@@ -238,6 +240,8 @@ def test_digest_payload_uses_selected_jobs_section_when_present():
                     "title": "Senior Solidity Engineer",
                     "score": 92.0,
                     "seniority_score": 20.0,
+                    "domain": "web3",
+                    "is_asia": 0,
                     "source": "web3career",
                     "url": "https://example.com/1",
                     "posted_at": "2026-02-26 08:00 UTC",
@@ -248,6 +252,8 @@ def test_digest_payload_uses_selected_jobs_section_when_present():
                     "title": "Protocol Engineer",
                     "score": 88.0,
                     "seniority_score": 10.0,
+                    "domain": "AI",
+                    "is_asia": 1,
                     "source": "dejob",
                     "url": "https://example.com/2",
                     "posted_at": "2026-02-26 07:00 UTC",
@@ -258,8 +264,16 @@ def test_digest_payload_uses_selected_jobs_section_when_present():
     )
     content = "\n".join(item["content"] for item in payloads)
     assert "每日岗位推送上限: 50" in content
-    assert "本轮岗位推送（按评分+级别排序）" in content
+    assert "本轮岗位大类分布" in content
+    assert "web3: 1" in content
+    assert "AI: 1" in content
+    assert "亚洲岗位: 1" in content
+    assert "本轮岗位推送（按评分+级别排序，按大类）" in content
+    assert "web3:" in content
+    assert "AI:" in content
     assert "Acme | Senior Solidity Engineer | 评分 92.0" in content
+    assert "Beta | Protocol Engineer | 评分 88.0" in content
+    assert "[亚洲岗位]" in content
     assert "超上限未推送岗位（公司+岗位名" in content
 
 
